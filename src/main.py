@@ -7,16 +7,15 @@ from functools import wraps
 
 import hydra
 import mlflow
-from hydra.core.config_store import ConfigStore
-from omegaconf import OmegaConf
-from tqdm.contrib.logging import logging_redirect_tqdm
-from transformers import set_seed
-
 from data import DataConfig, DataModule
 from distilled_data import DistilledData, DistilledDataConfig, LearnerTrainConfig
 from evaluator import EvaluateConfig, Evaluator
+from hydra.core.config_store import ConfigStore
 from model import LearnerModel, ModelConfig
+from omegaconf import OmegaConf
+from tqdm.contrib.logging import logging_redirect_tqdm
 from trainer import TrainConfig, Trainer
+from transformers import set_seed
 from utils import log_params_from_omegaconf_dict
 
 logger = logging.getLogger(__name__)
@@ -71,7 +70,6 @@ def mlflow_start_run_with_hydra(func):
 @hydra.main(config_path="../configs", config_name="default", version_base=None)
 @mlflow_start_run_with_hydra
 def main(config: Config):
-
     logger.info(f"Config:\n{OmegaConf.to_yaml(config)}")
 
     # log config (mlflow)

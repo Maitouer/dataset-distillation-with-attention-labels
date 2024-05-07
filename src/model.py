@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import torch
+from data import TASK_ATTRS
 from torch import nn
 from torch.nn import functional as F
 from transformers import (
@@ -10,8 +11,6 @@ from transformers import (
     PreTrainedModel,
 )
 from transformers.modeling_outputs import SequenceClassifierOutput
-
-from data import TASK_ATTRS
 
 AUTO_MODEL_CLASSES = {"single_label_classification": AutoModelForSequenceClassification}
 

@@ -5,14 +5,13 @@ from typing import Optional
 import evaluate
 import numpy as np
 import torch
+from data import TASK_ATTRS
+from distilled_data import DistilledData
+from model import LearnerModel
 from torch.cuda import amp
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
-
-from data import TASK_ATTRS
-from distilled_data import DistilledData
-from model import LearnerModel
 from utils import average, batch_on_device
 
 logger = logging.getLogger(__name__)
@@ -105,7 +104,6 @@ class Evaluator:
         return average_results
 
     def train_model(self, model: LearnerModel, distilled_data: DistilledData):
-
         model.train()
         train_config = distilled_data.train_config
 

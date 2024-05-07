@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 import mlflow
 import torch
+from distilled_data import DistilledData
+from evaluator import Evaluator
+from model import LearnerModel
 from torch.cuda import amp
 from torch.nn import functional as F
 from torch.optim import SGD, Adam, AdamW, Optimizer
@@ -11,10 +14,6 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import get_scheduler
-
-from distilled_data import DistilledData
-from evaluator import Evaluator
-from model import LearnerModel
 from utils import batch_on_device
 
 logger = logging.getLogger(__name__)
@@ -233,7 +232,6 @@ class Trainer:
         distilled_data: DistilledData,
         max_training_steps: int,
     ) -> tuple[Optimizer, _LRScheduler]:
-
         optimizer_class = {"sgd": SGD, "momentum": SGD, "adam": Adam, "adamw": AdamW}
         assert self.config.optimizer_type in optimizer_class
 
