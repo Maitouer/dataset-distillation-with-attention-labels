@@ -1,35 +1,18 @@
 from dataclasses import dataclass
 
 import torch
-from data import TASK_ATTRS
+from recbole.model.abstract_recommender import SequentialRecommender
+from recbole.model.layers import TransformerEncoder
+from recbole.model.loss import BPRLoss
 from torch import nn
-from torch.nn import functional as F
-from transformers import (
-    AutoConfig,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    PreTrainedModel,
-)
-from transformers.modeling_outputs import SequenceClassifierOutput
-
-AUTO_MODEL_CLASSES = {"single_label_classification": AutoModelForSequenceClassification}
 
 MODEL_ATTRS = {
-    "bert-base-uncased": {
+    "SASRec": {
         "dropout_keys": [
             "attention_probs_dropout_prob",
             "hidden_dropout_prob",
             "classifier_dropout",
         ],
-        "initialized_module_names": ["classifier"],
-    },
-    "roberta-base": {
-        "dropout_keys": [
-            "attention_probs_dropout_prob",
-            "hidden_dropout_prob",
-            "classifier_dropout",
-        ],
-        "initialized_module_names": ["classifier"],
     },
 }
 
@@ -39,112 +22,153 @@ class ModelConfig:
     """Config for Learner Model"""
 
     task_name: str
-    model_name: str = "bert-base-uncased"
+    model_name: str = "SASRec"
     use_pretrained_model: bool = True
     disable_dropout: bool = True
+    n_layers: int = 2
+    n_heads: int = 2
+    hidden_size: int = 64
+    inner_size: int = 256
+    hidden_dropout_prob: float = 0.5
+    attn_dropout_prob: float = 0.5
+    hidden_act: str = "gelu"
+    layer_norm_eps: float = 1e-12
+    initializer_range: float = 0.02
+    loss_type: str = "CE"
 
     def __post_init__(self):
         assert self.model_name in MODEL_ATTRS
 
 
-class LearnerModel(nn.Module):
-    def __init__(self, config: ModelConfig, num_labels: int = 2):
-        super().__init__()
-        self.config = config
-        self.problem_type = TASK_ATTRS[self.config.task_name]["problem_type"]
-        self.num_labels = num_labels
+class SASRec(SequentialRecommender):
+    r"""
+    SASRec is the first sequential recommender based on self-attentive mechanism.
 
-        assert self.problem_type != "single_label_classification" or self.num_labels > 1
+    NOTE:
+        In the author's implementation, the Point-Wise Feed-Forward Network (PFFN) is implemented
+        by CNN with 1x1 kernel. In this implementation, we follows the original BERT implementation
+        using Fully Connected Layer to implement the PFFN.
+    """
 
-        if self.config.disable_dropout:
-            dropout_configs = {
-                dropout_key: 0.0
-                for dropout_key in MODEL_ATTRS[self.config.model_name]["dropout_keys"]
-            }
+    def __init__(self, config, dataset):
+        super(SASRec, self).__init__(config, dataset)
+
+        self.USER_ID = config["USER_ID_FIELD"]
+        self.ITEM_ID = config["ITEM_ID_FIELD"]
+        self.ITEM_SEQ = self.ITEM_ID + config["LIST_SUFFIX"]
+        self.ITEM_SEQ_LEN = config["ITEM_LIST_LENGTH_FIELD"]
+        self.POS_ITEM_ID = self.ITEM_ID
+        self.NEG_ITEM_ID = config["NEG_PREFIX"] + self.ITEM_ID
+        self.max_seq_length = config["MAX_ITEM_LIST_LENGTH"]
+        self.n_items = dataset.num(self.ITEM_ID)
+
+        # load parameters info
+        self.n_layers = config.n_layers
+        self.n_heads = config.n_heads
+        self.hidden_size = config.hidden_size  # same as embedding_size
+        self.inner_size = config[
+            "inner_size"
+        ]  # the dimensionality in feed-forward layer
+        self.hidden_dropout_prob = config.hidden_dropout_prob
+        self.attn_dropout_prob = config.attn_dropout_prob
+        self.hidden_act = config.hidden_act
+        self.layer_norm_eps = config.layer_norm_eps
+
+        self.initializer_range = config.initializer_range
+        self.loss_type = config.loss_type
+
+        # define layers and loss
+        self.item_embedding = nn.Embedding(
+            self.n_items, self.hidden_size, padding_idx=0
+        )
+        self.position_embedding = nn.Embedding(self.max_seq_length, self.hidden_size)
+        self.trm_encoder = TransformerEncoder(
+            n_layers=self.n_layers,
+            n_heads=self.n_heads,
+            hidden_size=self.hidden_size,
+            inner_size=self.inner_size,
+            hidden_dropout_prob=self.hidden_dropout_prob,
+            attn_dropout_prob=self.attn_dropout_prob,
+            hidden_act=self.hidden_act,
+            layer_norm_eps=self.layer_norm_eps,
+        )
+
+        self.LayerNorm = nn.LayerNorm(self.hidden_size, eps=self.layer_norm_eps)
+        self.dropout = nn.Dropout(self.hidden_dropout_prob)
+
+        if self.loss_type == "BPR":
+            self.loss_fct = BPRLoss()
+        elif self.loss_type == "CE":
+            self.loss_fct = nn.CrossEntropyLoss()
         else:
-            dropout_configs = {}
+            raise NotImplementedError("Make sure 'loss_type' in ['BPR', 'CE']!")
 
-        self.bert_model_config = AutoConfig.from_pretrained(
-            self.config.model_name,
-            num_labels=self.num_labels,
-            finetuning_task=self.config.task_name,
-            problem_type=self.problem_type,
-            **dropout_configs,
+        # parameters initialization
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        """Initialize the weights"""
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+        if isinstance(module, nn.Linear) and module.bias is not None:
+            module.bias.data.zero_()
+
+    def forward(self, item_seq, item_seq_len):
+        position_ids = torch.arange(
+            item_seq.size(1), dtype=torch.long, device=item_seq.device
         )
-        model_class = AUTO_MODEL_CLASSES[self.problem_type]
-        self.bert_model: PreTrainedModel = model_class.from_pretrained(
-            config.model_name,
-            from_tf=bool(".ckpt" in config.model_name),
-            config=self.bert_model_config,
+        position_ids = position_ids.unsqueeze(0).expand_as(item_seq)
+        position_embedding = self.position_embedding(position_ids)
+
+        item_emb = self.item_embedding(item_seq)
+        input_emb = item_emb + position_embedding
+        input_emb = self.LayerNorm(input_emb)
+        input_emb = self.dropout(input_emb)
+
+        extended_attention_mask = self.get_attention_mask(item_seq)
+
+        trm_output = self.trm_encoder(
+            input_emb, extended_attention_mask, output_all_encoded_layers=True
         )
+        output = trm_output[-1]
+        output = self.gather_indexes(output, item_seq_len - 1)
+        return output  # [B H]
 
-        if self.config.use_pretrained_model:
-            self.initial_state_dict = self.bert_model.state_dict()
-            self.initialized_module_names = MODEL_ATTRS[self.config.model_name][
-                "initialized_module_names"
-            ]
+    def calculate_loss(self, interaction):
+        item_seq = interaction[self.ITEM_SEQ]
+        item_seq_len = interaction[self.ITEM_SEQ_LEN]
+        seq_output = self.forward(item_seq, item_seq_len)
+        pos_items = interaction[self.POS_ITEM_ID]
+        if self.loss_type == "BPR":
+            neg_items = interaction[self.NEG_ITEM_ID]
+            pos_items_emb = self.item_embedding(pos_items)
+            neg_items_emb = self.item_embedding(neg_items)
+            pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
+            neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
+            loss = self.loss_fct(pos_score, neg_score)
+            return loss
+        else:  # self.loss_type = 'CE'
+            test_item_emb = self.item_embedding.weight
+            logits = torch.matmul(seq_output, test_item_emb.transpose(0, 1))
+            loss = self.loss_fct(logits, pos_items)
+            return loss
 
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
+    def predict(self, interaction):
+        item_seq = interaction[self.ITEM_SEQ]
+        item_seq_len = interaction[self.ITEM_SEQ_LEN]
+        test_item = interaction[self.ITEM_ID]
+        seq_output = self.forward(item_seq, item_seq_len)
+        test_item_emb = self.item_embedding(test_item)
+        scores = torch.mul(seq_output, test_item_emb).sum(dim=1)  # [B]
+        return scores
 
-    def forward(self, *args, **kwargs) -> SequenceClassifierOutput:
-        labels: torch.LongTensor = kwargs.pop("labels") if "labels" in kwargs else None
-
-        outputs: SequenceClassifierOutput = self.bert_model(*args, **kwargs)
-
-        loss = None
-        if labels is not None:
-            if self.problem_type != "single_label_classification":
-                raise NotImplementedError
-
-            if outputs.logits.shape == labels.shape:
-                # labels: (batch_size, num_labels) or (batch_size)
-                labels = labels.view(-1, self.num_labels)
-            else:
-                assert labels.ndim == 1
-
-            loss = F.cross_entropy(
-                outputs.logits.view(-1, self.num_labels), labels, reduction="none"
-            )
-            assert loss.shape == labels.shape[:1]
-
-        return SequenceClassifierOutput(
-            loss=loss,
-            logits=outputs.logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
-    def resize_token_embeddings(self, *args, **kwargs):
-        return self.bert_model.resize_token_embeddings(*args, **kwargs)
-
-    def get_input_embeddings(self):
-        return self.bert_model.get_input_embeddings()
-
-    def init_weights(self):
-        """init_weights
-        Initialize additional weights of pretrained model in the same way
-        when calling AutoForSequenceClassification.from_pretrained()
-        """
-
-        if not self.config.use_pretrained_model:
-            assert hasattr(self.bert_model, "init_weights")
-            self.bert_model.init_weights()
-        else:
-            self.bert_model.load_state_dict(self.initial_state_dict)
-            for module_name in self.initialized_module_names:
-                initialized_module = self.bert_model
-                for p in module_name.split("."):
-                    initialized_module = getattr(initialized_module, p)
-                for module in initialized_module.modules():
-                    if isinstance(module, nn.Linear):
-                        module.weight.data.normal_(
-                            mean=0.0, std=self.bert_model.config.initializer_range
-                        )
-                        if module.bias is not None:
-                            module.bias.data.zero_()
-                    elif len(list(module.parameters(recurse=False))) > 0:
-                        raise NotImplementedError
-
-    @property
-    def device(self):
-        return self.bert_model.device
+    def full_sort_predict(self, interaction):
+        item_seq = interaction[self.ITEM_SEQ]
+        item_seq_len = interaction[self.ITEM_SEQ_LEN]
+        seq_output = self.forward(item_seq, item_seq_len)
+        test_items_emb = self.item_embedding.weight
+        scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B n_items]
+        return scores

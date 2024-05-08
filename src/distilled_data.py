@@ -14,24 +14,21 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LearnerTrainConfig:
     train_step: int = 1
-    batch_size_per_label: int = 1
+    batch_size: int = 4
 
 
 @dataclass
 class DistilledDataConfig:
     pretrained_data_path: Optional[str] = None
-    data_per_label: int = 1
     attention_label_type: str = "none"  # ["none", "cls", "all"]
-    seq_length: int = 512
-    label_type: str = "hard"  # ["hard", "soft", "unrestricted"]
+    attention_loss_lambda: float = 1.0
+    distilled_ratio: float = 0.2
     lr_for_step: bool = True
     lr_init: float = 1.0e-2
     lr_linear_decay: bool = False
     fix_order: bool = True
-    attention_loss_lambda: float = 1.0
 
     def __post_init__(self):
-        assert self.label_type in ["hard", "soft", "unrestricted"]
         if self.lr_for_step and self.lr_linear_decay:
             logger.warning("`lr_linear_decay=True` is ignored.")
 
@@ -67,13 +64,16 @@ class DistilledFeature(metaclass=ABCMeta):
 class DistilledInputEmbedding(DistilledFeature):
     def __init__(
         self,
-        data_per_label: int = 1,
-        num_labels: int = 2,
-        seq_length: int = 512,
-        hidden_size: int = 768,
+        seq_num: int,
+        seq_length: int,
+        item_num: int,
+        distill_ratio: float = 0.2,
     ):
         initial_embeds = torch.randn(
-            data_per_label * num_labels, seq_length, hidden_size, requires_grad=True
+            int(seq_num * distill_ratio),
+            seq_length,
+            item_num,
+            requires_grad=True,
         )
         self.data = initial_embeds
 
@@ -81,34 +81,12 @@ class DistilledInputEmbedding(DistilledFeature):
         return self.data[index]
 
 
-class DistilledLabel(DistilledFeature):
-    def __init__(
-        self,
-        data_per_label: int = 1,
-        num_labels: int = 2,
-        label_type: Literal["hard", "soft", "unrestricted"] = "hard",
-    ):
-        self.label_type = label_type
-
-        label_ids = torch.arange(data_per_label * num_labels) % num_labels
-        self.data = torch.eye(num_labels)[label_ids]
-
-        if label_type != "hard":
-            self.data.requires_grad_()
-
-    def __getitem__(self, index):
-        if self.label_type == "soft":
-            return self.data[index].softmax(dim=-1)
-
-        return self.data[index]
-
-
 class DistilledAttentionLabels(DistilledFeature):
     def __init__(
         self,
-        data_per_label: int = 1,
-        num_labels: int = 2,
-        seq_length: int = 512,
+        seq_num: int,
+        seq_length: int,
+        distill_ratio: float = 0.2,
         num_layers: int = 12,
         num_heads: int = 12,
         attention_label_type: Literal["cls", "all"] = "cls",
@@ -116,7 +94,7 @@ class DistilledAttentionLabels(DistilledFeature):
         assert attention_label_type in ["cls", "all"]
 
         self.data = torch.randn(
-            data_per_label * num_labels,
+            int(seq_num * distill_ratio),
             num_layers,
             num_heads,
             1 if attention_label_type == "cls" else seq_length,
@@ -171,8 +149,9 @@ class DistilledData:
         self,
         config: DistilledDataConfig,
         train_config: LearnerTrainConfig,
-        num_labels: int = 2,
-        hidden_size: int = 768,
+        seq_num: int,  # real sequence numbers
+        seq_length: int,  # real sequence length
+        num_items: int,  # real unique item numbers
         num_layers: Optional[int] = None,
         num_heads: Optional[int] = None,
     ):
@@ -184,24 +163,18 @@ class DistilledData:
             train_config = LearnerTrainConfig(**train_config)
         self.train_config = train_config
 
-        self.num_labels = num_labels
-        self.hidden_size = hidden_size
+        self.data_size = int(seq_num * self.config.distilled_ratio)
         self.num_layers = num_layers
         self.num_heads = num_heads
 
         if self.config.fix_order:
-            assert config.data_per_label % train_config.batch_size_per_label == 0
+            assert (self.data_size) % train_config.batch_size == 0
 
         self.inputs_embeds = DistilledInputEmbedding(
-            data_per_label=config.data_per_label,
-            num_labels=num_labels,
-            seq_length=config.seq_length,
-            hidden_size=hidden_size,
-        )
-        self.labels = DistilledLabel(
-            data_per_label=config.data_per_label,
-            num_labels=num_labels,
-            label_type=config.label_type,
+            seq_num=seq_num,
+            seq_length=seq_length,
+            item_num=num_items,
+            distill_ratio=self.config.distilled_ratio,
         )
         self.lr = DistilledLR(
             lr_init=config.lr_init,
@@ -211,16 +184,15 @@ class DistilledData:
         )
         self.data: dict[str, DistilledFeature] = {
             "inputs_embeds": self.inputs_embeds,
-            "labels": self.labels,
             "lr": self.lr,
         }
 
         # attention labels
         if config.attention_label_type in ("cls", "all"):
             self.attention_labels = DistilledAttentionLabels(
-                data_per_label=config.data_per_label,
-                num_labels=num_labels,
-                seq_length=config.seq_length,
+                seq_num=seq_num,
+                seq_length=seq_length,
+                distill_ratio=self.config.distilled_ratio,
                 num_layers=num_layers,
                 num_heads=num_heads,
                 attention_label_type=config.attention_label_type,
@@ -236,7 +208,6 @@ class DistilledData:
         indices = self.get_batch_indices(step)
         return {
             "inputs_embeds": self.inputs_embeds[indices],
-            "labels": self.labels[indices],
             "attention_labels": self.attention_labels[indices]
             if self.attention_labels is not None
             else None,
@@ -244,8 +215,8 @@ class DistilledData:
         }
 
     def get_batch_indices(self, step):
-        batch_size = self.num_labels * self.train_config.batch_size_per_label
-        data_size = self.num_labels * self.config.data_per_label
+        batch_size = self.train_config.batch_size
+        data_size = self.data_size
         if self.config.fix_order:
             cycle = step % int(data_size / batch_size)
             return torch.arange(batch_size * cycle, batch_size * (cycle + 1))
@@ -265,8 +236,7 @@ class DistilledData:
         config = {
             "config": asdict(self.config),
             "train_config": asdict(self.train_config),
-            "num_labels": self.num_labels,
-            "hidden_size": self.hidden_size,
+            "data_size": self.data_size,
             "num_layers": self.num_layers,
             "num_heads": self.num_heads,
         }

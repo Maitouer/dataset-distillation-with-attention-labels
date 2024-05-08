@@ -7,16 +7,17 @@ from functools import wraps
 
 import hydra
 import mlflow
-from data import DataConfig, DataModule
 from distilled_data import DistilledData, DistilledDataConfig, LearnerTrainConfig
 from evaluator import EvaluateConfig, Evaluator
 from hydra.core.config_store import ConfigStore
-from model import LearnerModel, ModelConfig
+from model import ModelConfig, SASRec
 from omegaconf import OmegaConf
 from tqdm.contrib.logging import logging_redirect_tqdm
 from trainer import TrainConfig, Trainer
 from transformers import set_seed
 from utils import log_params_from_omegaconf_dict
+
+from data import DataConfig, DataModule
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +85,17 @@ def main(config: Config):
 
     # Learner
     logger.info(f"Building Leaner model: (`{config.model.model_name}`)")
-    model = LearnerModel(config.model, num_labels=data_module.num_labels)
 
-    # preprocess datasets
-    data_module.run_preprocess(tokenizer=model.tokenizer)
+    from recbole.config import Config
+
+    # recbole config
+    recbole_config = Config(
+        model=config.model.model_name,
+        dataset=config.data.task_name,
+        config_file_list=[config.data.recbole_config],
+        config_dict=config.model,
+    )
+    model = SASRec(recbole_config, data_module.datasets)
 
     # Distilled data
     if config.distilled_data.pretrained_data_path is not None:
@@ -98,10 +106,11 @@ def main(config: Config):
         distilled_data = DistilledData(
             config=config.distilled_data,
             train_config=config.learner_train,
-            num_labels=data_module.num_labels,
-            hidden_size=model.bert_model_config.hidden_size,
-            num_layers=model.bert_model_config.num_hidden_layers,
-            num_heads=model.bert_model_config.num_attention_heads,
+            seq_num=data_module.datasets.user_num,
+            seq_length=data_module.datasets.max_item_list_len,
+            num_items=data_module.datasets.item_num,
+            num_layers=model.n_layers,
+            num_heads=model.n_heads,
         )
 
     # Evaluator

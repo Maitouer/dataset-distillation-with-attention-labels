@@ -1,0 +1,7 @@
+### DataSet ###
+data_path: data
+load_col:
+  inter: [user_id, item_id, timestamp]
+checkpoint_dir: data/beauty
+train_neg_sample_args: ~
+MAX_ITEM_LIST_LENGTH: 50

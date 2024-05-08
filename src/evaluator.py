@@ -5,14 +5,15 @@ from typing import Optional
 import evaluate
 import numpy as np
 import torch
-from data import TASK_ATTRS
 from distilled_data import DistilledData
-from model import LearnerModel
+from model import LearnerModel, SASRec
 from torch.cuda import amp
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 from utils import average, batch_on_device
+
+from data import TASK_ATTRS
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class EvaluateConfig:
 
 
 class Evaluator:
-    def __init__(self, config: EvaluateConfig, model: LearnerModel):
+    def __init__(self, config: EvaluateConfig, model: SASRec):
         self.config = config
         self.model = model
         self.metric = Metric(config.task_name)
@@ -79,7 +80,7 @@ class Evaluator:
         all_results = []
         for i in trange(n_eval_model, dynamic_ncols=True, leave=False, desc="Evaluate"):
             # train model on distilled data
-            self.model.init_weights()
+            self.model.apply(self.model._init_weights)
             self.train_model(self.model, distilled_data)
 
             # evaluate trained model
@@ -103,7 +104,7 @@ class Evaluator:
 
         return average_results
 
-    def train_model(self, model: LearnerModel, distilled_data: DistilledData):
+    def train_model(self, model: SASRec, distilled_data: DistilledData):
         model.train()
         train_config = distilled_data.train_config
 

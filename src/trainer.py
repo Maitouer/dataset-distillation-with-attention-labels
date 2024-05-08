@@ -6,7 +6,7 @@ import mlflow
 import torch
 from distilled_data import DistilledData
 from evaluator import Evaluator
-from model import LearnerModel
+from model import SASRec
 from torch.cuda import amp
 from torch.nn import functional as F
 from torch.optim import SGD, Adam, AdamW, Optimizer
@@ -48,7 +48,7 @@ class Trainer:
     def fit(
         self,
         distilled_data: DistilledData,
-        model: LearnerModel,
+        model: SASRec,
         train_loader: DataLoader,
         valid_loader: DataLoader,
         evaluator: Evaluator,

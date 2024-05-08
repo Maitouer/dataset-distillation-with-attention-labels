@@ -1,6 +1,6 @@
 base:
   experiment_name: ${data.task_name}.${model.model_name}
-  method: dpc_${distilled_data.data_per_label}.step_${learner_train.train_step}.bsz_${learner_train.batch_size_per_label}.label_${distilled_data.label_type}.al_${distilled_data.attention_label_type}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
+  method: distilled-ration_${distilled_data.distilled_ratio}.train-step_${learner_train.train_step}.batch-size_${learner_train.batch_size}.attn-label-type_${distilled_data.attention_label_type}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
   run_name: ${base.method}.${now:%Y-%m-%d.%H-%M-%S}
   save_dir_root: ./save
   save_method_dir: ${base.save_dir_root}/${base.experiment_name}/${base.method}
@@ -9,28 +9,38 @@ base:
   seed: 42
 
 data:
-  task_name: ag_news
+  task_name: books
   datasets_path: ${base.data_dir_root}/${data.task_name}/datasets
-  preprocessed_datasets_path: ${base.data_dir_root}/${data.task_name}/datasets_for_${model.model_name}
+  preprocessed_datasets_path: ${base.data_dir_root}/${data.task_name}/${data.task_name}.inter
   train_batch_size: 32
   valid_batch_size: 256
   test_batch_size: 256
   num_proc: 1
   force_preprocess: False
+  model: SASRec
+  recbole_config: ./configs/sasrec.yaml
 
 model:
   task_name: ${data.task_name}
-  model_name: bert-base-uncased
+  model_name: SASRec
   use_pretrained_model: True
   disable_dropout: True
+  n_layers: 2                     # (int) The number of transformer layers in transformer encoder.
+  n_heads: 2                      # (int) The number of attention heads for multi-head attention layer.
+  hidden_size: 64                 # (int) The number of features in the hidden state.
+  inner_size: 256                 # (int) The inner hidden size in feed-forward layer.
+  hidden_dropout_prob: 0.5        # (float) The probability of an element to be zeroed.
+  attn_dropout_prob: 0.5          # (float) The probability of an attention score to be zeroed.
+  hidden_act: 'gelu'              # (str) The activation function in feed-forward layer.
+  layer_norm_eps: 1e-12           # (float) A value added to the denominator for numerical stability. 
+  initializer_range: 0.02         # (float) The standard deviation for normal initialization.
+  loss_type: 'CE'                 # (str) The type of loss function. Range in ['BPR', 'CE'].
 
 distilled_data:
   pretrained_data_path: null
-  data_per_label: 1
   attention_label_type: none # [none, cls, all]
   attention_loss_lambda: 1.0
-  seq_length: 512
-  label_type: hard # [hard, soft, unrestricted]
+  distilled_ratio: 0.2
   lr_for_step: True
   lr_init: 1.0e-2
   lr_linear_decay: False
@@ -38,12 +48,12 @@ distilled_data:
 
 learner_train:
   train_step: 1
-  batch_size_per_label: 1
+  batch_size: 1
 
 train:
   skip_train: False
   inner_loop: ${learner_train.train_step}
-  epoch: 30
+  epoch: 2
   lr_inputs_embeds: 1.0e-2
   lr_attention_labels: ${train.lr_inputs_embeds}
   lr_labels: ${train.lr_inputs_embeds}
