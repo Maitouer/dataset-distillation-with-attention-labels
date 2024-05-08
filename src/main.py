@@ -119,15 +119,15 @@ def main(config: Config):
     evaluator = Evaluator(config.evaluate, recbole_config, model=model)
 
     # Train distilled data
-    # if not config.train.skip_train:
-    #     trainer = Trainer(config.train)
-    #     trainer.fit(
-    #         distilled_data=distilled_data,
-    #         model=model,
-    #         train_loader=data_module.train_loader,
-    #         valid_loader=data_module.valid_loader,
-    #         evaluator=evaluator,
-    #     )
+    if not config.train.skip_train:
+        trainer = Trainer(config.train)
+        trainer.fit(
+            distilled_data=distilled_data,
+            model=model,
+            train_loader=data_module.train_loader,
+            valid_loader=data_module.valid_loader,
+            evaluator=evaluator,
+        )
 
     # Evaluate
     results = evaluator.evaluate(
