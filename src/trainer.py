@@ -7,6 +7,7 @@ import torch
 from distilled_data import DistilledData
 from evaluator import Evaluator
 from model import SASRec
+from recbole.data.dataloader import FullSortEvalDataLoader, TrainDataLoader
 from torch.cuda import amp
 from torch.nn import functional as F
 from torch.optim import SGD, Adam, AdamW, Optimizer
@@ -14,7 +15,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import get_scheduler
-from utils import batch_on_device
+from utils import batch_on_device, real_batch_on_device
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,8 @@ class Trainer:
         self,
         distilled_data: DistilledData,
         model: SASRec,
-        train_loader: DataLoader,
-        valid_loader: DataLoader,
+        train_loader: TrainDataLoader,
+        valid_loader: FullSortEvalDataLoader,
         evaluator: Evaluator,
     ):
         model.cuda()
@@ -65,7 +66,10 @@ class Trainer:
         )
         scaler = amp.GradScaler(enabled=self.use_amp)
 
-        # evaluate before training
+        """ 
+        Evaluate before training:
+        train on distilled-data and evaluate on real-valid-data.
+        """
         results = evaluator.evaluate_fast(
             distilled_data, valid_loader, n_eval_model=self.config.n_eval_model
         )
@@ -81,7 +85,10 @@ class Trainer:
 
         best_val_loss = results["loss"]
 
-        logger.info("Start training!!")
+        """
+        Start training:
+        """
+        logger.info("Start training !!!")
         for i in range(self.config.epoch):
             log_train_loss = 0
             with tqdm(
@@ -93,35 +100,34 @@ class Trainer:
                 for outer_step, batch_real in enumerate(pbar):
                     # initialize model
                     model.train()
-                    model.init_weights()
+                    model.apply(model._init_weights)
 
                     params = dict(model.named_parameters())
                     buffers = dict(model.named_buffers())
 
-                    def compute_loss(
-                        params, buffers, input_ids=None, attention_labels=None, **kwargs
-                    ):
-                        kwargs["output_attentions"] = True
+                    def compute_loss(params, buffers, interaction):
                         with amp.autocast(enabled=self.use_amp, dtype=self.amp_dtype):
                             outputs = torch.func.functional_call(
-                                model, (params, buffers), args=input_ids, kwargs=kwargs
+                                model, (params, buffers), args=interaction
                             )
-                        loss_task = outputs.loss.mean()
+                        loss_task = outputs
 
-                        if attention_labels is not None:
-                            attn_weights = torch.stack(outputs.attentions, dim=1)
-                            attn_weights = attn_weights[
-                                ..., : attention_labels.size(-2), :
-                            ]
-                            assert attn_weights.shape == attention_labels.shape
-                            loss_attn = F.kl_div(
-                                torch.log(attn_weights + 1e-12),
-                                attention_labels,
-                                reduction="none",
-                            )
-                            loss_attn = loss_attn.sum(-1).mean()
-                        else:
-                            loss_attn = 0.0
+                        # if attention_labels is not None:
+                        #     attn_weights = torch.stack(outputs.attentions, dim=1)
+                        #     attn_weights = attn_weights[
+                        #         ..., : attention_labels.size(-2), :
+                        #     ]
+                        #     assert attn_weights.shape == attention_labels.shape
+                        #     loss_attn = F.kl_div(
+                        #         torch.log(attn_weights + 1e-12),
+                        #         attention_labels,
+                        #         reduction="none",
+                        #     )
+                        #     loss_attn = loss_attn.sum(-1).mean()
+                        # else:
+                        #     loss_attn = 0.0
+
+                        loss_attn = 0.0
 
                         return (
                             loss_task + distilled_data.attention_loss_lambda * loss_attn
@@ -135,15 +141,17 @@ class Trainer:
 
                         # update model on distilled data
                         grads = torch.func.grad(compute_loss)(
-                            params, buffers, inputs_embeds=inputs_embeds, **batch_syn
+                            params,
+                            buffers,
+                            interaction=inputs_embeds,
                         )
                         params = {
                             name: p - syn_lr * grads[name] for name, p in params.items()
                         }
 
                     # evaluate updated model on real data
-                    batch_real = batch_on_device(batch_real)
-                    loss_real = compute_loss(params, buffers, **batch_real)
+                    batch_real = real_batch_on_device(batch_real)
+                    loss_real = compute_loss(params, buffers, interaction=batch_real)
 
                     # compute gradient
                     optimizer.zero_grad()
@@ -238,7 +246,6 @@ class Trainer:
         data_dict = distilled_data.data_dict()
         assert data_dict.keys() >= {
             "inputs_embeds",
-            "labels",
             "lr",
         }, f"{data_dict.keys()}"
         grouped_params = [
@@ -247,8 +254,10 @@ class Trainer:
                 "weight_decay": self.config.weight_decay,
                 "lr": self.config.lr_inputs_embeds,
             },
-            {"params": data_dict["labels"], "lr": self.config.lr_labels},
-            {"params": data_dict["lr"], "lr": self.config.lr_lr},
+            {
+                "params": data_dict["lr"],
+                "lr": self.config.lr_lr,
+            },
         ]
         if "attention_labels" in data_dict:
             grouped_params.append(

@@ -1,6 +1,6 @@
 base:
   experiment_name: ${data.task_name}.${model.model_name}
-  method: distilled-ration_${distilled_data.distilled_ratio}.train-step_${learner_train.train_step}.batch-size_${learner_train.batch_size}.attn-label-type_${distilled_data.attention_label_type}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
+  method: distilled-ratio_${distilled_data.distilled_ratio}.train-step_${learner_train.train_step}.batch-size_${learner_train.batch_size}.attn-label-type_${distilled_data.attention_label_type}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
   run_name: ${base.method}.${now:%Y-%m-%d.%H-%M-%S}
   save_dir_root: ./save
   save_method_dir: ${base.save_dir_root}/${base.experiment_name}/${base.method}
@@ -44,16 +44,16 @@ distilled_data:
   lr_for_step: True
   lr_init: 1.0e-2
   lr_linear_decay: False
-  fix_order: True
+  fix_order: False
 
 learner_train:
   train_step: 1
-  batch_size: 1
+  batch_size: 8
 
 train:
   skip_train: False
   inner_loop: ${learner_train.train_step}
-  epoch: 2
+  epoch: 1
   lr_inputs_embeds: 1.0e-2
   lr_attention_labels: ${train.lr_inputs_embeds}
   lr_labels: ${train.lr_inputs_embeds}
@@ -65,14 +65,14 @@ train:
   max_grad_norm: 1.0
   val_interval: 1
   log_interval: -1
-  n_eval_model: 20
+  n_eval_model: 5
   save_ckpt_dir: ${base.save_dir}/checkpoints
   fp16: False
   bf16: False
 
 evaluate:
   task_name: ${data.task_name}
-  n_eval_model: 100
+  n_eval_model: 100  # for reset model interval
   fp16: False
   bf16: False
 

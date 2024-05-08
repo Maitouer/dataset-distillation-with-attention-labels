@@ -12,6 +12,7 @@ from evaluator import EvaluateConfig, Evaluator
 from hydra.core.config_store import ConfigStore
 from model import ModelConfig, SASRec
 from omegaconf import OmegaConf
+from recbole.config import Config as RecBoleConfig
 from tqdm.contrib.logging import logging_redirect_tqdm
 from trainer import TrainConfig, Trainer
 from transformers import set_seed
@@ -84,12 +85,10 @@ def main(config: Config):
     data_module = DataModule(config.data)
 
     # Learner
-    logger.info(f"Building Leaner model: (`{config.model.model_name}`)")
-
-    from recbole.config import Config
+    logger.info(f"Building leaner model: (`{config.model.model_name}`)")
 
     # recbole config
-    recbole_config = Config(
+    recbole_config = RecBoleConfig(
         model=config.model.model_name,
         dataset=config.data.task_name,
         config_file_list=[config.data.recbole_config],
@@ -112,31 +111,36 @@ def main(config: Config):
             num_layers=model.n_layers,
             num_heads=model.n_heads,
         )
+    logger.info(
+        f"Distilled data shape: (`{list(distilled_data.inputs_embeds.data.shape)}`)"
+    )
 
     # Evaluator
-    evaluator = Evaluator(config.evaluate, model=model)
+    evaluator = Evaluator(config.evaluate, recbole_config, model=model)
 
     # Train distilled data
-    if not config.train.skip_train:
-        trainer = Trainer(config.train)
-        trainer.fit(
-            distilled_data=distilled_data,
-            model=model,
-            train_loader=data_module.train_loader(),
-            valid_loader=data_module.valid_loader(),
-            evaluator=evaluator,
-        )
+    # if not config.train.skip_train:
+    #     trainer = Trainer(config.train)
+    #     trainer.fit(
+    #         distilled_data=distilled_data,
+    #         model=model,
+    #         train_loader=data_module.train_loader,
+    #         valid_loader=data_module.valid_loader,
+    #         evaluator=evaluator,
+    #     )
 
     # Evaluate
     results = evaluator.evaluate(
-        distilled_data, eval_loader=data_module.valid_loader(), verbose=True
+        distilled_data, eval_loader=data_module.valid_loader, verbose=False
     )
     mlflow.log_metrics({f"avg.{k}": v[0] for k, v in results.items()})
     mlflow.log_metrics({f"std.{k}": v[1] for k, v in results.items()})
 
     results = {k: f"{v[0]}±{v[1]}" for k, v in results.items()}
     logger.info(f"Final Results: {results}")
-    save_path = os.path.join(config.base.save_dir, "results.json")
+    if not os.path.exists(config.base.save_dir):
+        os.mkdir(config.base.save_dir)
+    save_path = os.path.join(config.base.save_dir, "results.json") 
     json.dump(results, open(save_path, "w"))
     mlflow.log_artifact(save_path)
 

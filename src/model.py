@@ -116,7 +116,10 @@ class SASRec(SequentialRecommender):
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
-    def forward(self, item_seq, item_seq_len):
+    def initialize_parameters(self):
+        self.apply(self._init_weights)
+
+    def _get_output(self, item_seq, item_seq_len):
         position_ids = torch.arange(
             item_seq.size(1), dtype=torch.long, device=item_seq.device
         )
@@ -137,10 +140,90 @@ class SASRec(SequentialRecommender):
         output = self.gather_indexes(output, item_seq_len - 1)
         return output  # [B H]
 
+    def forward(self, interaction):
+        """Synthetic data input"""
+        if isinstance(interaction, torch.Tensor) and interaction.dim() == 3:
+            extended_attention_mask = self.get_attention_mask(interaction[:, :-1, 0])
+            item_seq_len = (
+                torch.tensor(interaction.size(1) - 1)
+                .unsqueeze(0)
+                .expand_as(interaction[:, 0, 0])
+                .to(interaction.device)
+            )
+            position_ids = (
+                torch.arange(
+                    interaction.size(1),
+                    dtype=torch.long,
+                    device=interaction.device,
+                )
+                .unsqueeze(0)
+                .expand_as(interaction[:, :, 0])
+            )
+            position_embedding = self.position_embedding(position_ids)
+            item_emb = interaction @ self.item_embedding.weight
+            item_emb += position_embedding
+
+            if self.loss_type == "BPR":
+                pos_items_emb = item_emb[:, -2, :]
+                neg_items_emb = item_emb[:, -1, :]
+                input_emb = item_emb[:, :-2, :]
+            elif self.loss_type == "CE":
+                pos_items = (
+                    torch.tensor(interaction.size(1) - 1)
+                    .unsqueeze(0)
+                    .expand_as(interaction[:, 0, 0])
+                    .to(interaction.device)
+                )
+                input_emb = item_emb[:, :-1, :]
+
+        """ Real data input"""
+        if not (isinstance(interaction, torch.Tensor) and interaction.dim() == 3):
+            item_seq = interaction[self.ITEM_SEQ]
+            item_seq_len = interaction[self.ITEM_SEQ_LEN]
+
+            position_ids = torch.arange(
+                item_seq.size(1), dtype=torch.long, device=item_seq.device
+            )
+            position_ids = position_ids.unsqueeze(0).expand_as(item_seq)
+            position_embedding = self.position_embedding(position_ids)
+
+            item_emb = self.item_embedding(item_seq)
+            input_emb = item_emb + position_embedding
+            input_emb = self.LayerNorm(input_emb)
+            input_emb = self.dropout(input_emb)
+
+            extended_attention_mask = self.get_attention_mask(item_seq)
+
+            if self.loss_type == "BPR":
+                pos_items = interaction[self.POS_ITEM_ID]
+                pos_items_emb = self.item_embedding(pos_items)
+                neg_items = interaction[self.NEG_ITEM_ID]
+                neg_items_emb = self.item_embedding(neg_items)
+            elif self.loss_type == "CE":
+                pos_items = interaction[self.POS_ITEM_ID]
+
+        """ Generate output and calculate loss """
+        trm_output = self.trm_encoder(
+            input_emb, extended_attention_mask, output_all_encoded_layers=True
+        )
+        output = trm_output[-1]
+        seq_output = self.gather_indexes(output, item_seq_len - 1)
+
+        if self.loss_type == "BPR":
+            pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
+            neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
+            loss = self.loss_fct(pos_score, neg_score)
+            return loss
+        elif self.loss_type == "CE":
+            test_item_emb = self.item_embedding.weight
+            logits = torch.matmul(seq_output, test_item_emb.transpose(0, 1))
+            loss = self.loss_fct(logits, pos_items)
+            return loss
+
     def calculate_loss(self, interaction):
         item_seq = interaction[self.ITEM_SEQ]
         item_seq_len = interaction[self.ITEM_SEQ_LEN]
-        seq_output = self.forward(item_seq, item_seq_len)
+        seq_output = self._get_output(item_seq, item_seq_len)
         pos_items = interaction[self.POS_ITEM_ID]
         if self.loss_type == "BPR":
             neg_items = interaction[self.NEG_ITEM_ID]
@@ -160,7 +243,7 @@ class SASRec(SequentialRecommender):
         item_seq = interaction[self.ITEM_SEQ]
         item_seq_len = interaction[self.ITEM_SEQ_LEN]
         test_item = interaction[self.ITEM_ID]
-        seq_output = self.forward(item_seq, item_seq_len)
+        seq_output = self._get_output(item_seq, item_seq_len)
         test_item_emb = self.item_embedding(test_item)
         scores = torch.mul(seq_output, test_item_emb).sum(dim=1)  # [B]
         return scores
@@ -168,7 +251,7 @@ class SASRec(SequentialRecommender):
     def full_sort_predict(self, interaction):
         item_seq = interaction[self.ITEM_SEQ]
         item_seq_len = interaction[self.ITEM_SEQ_LEN]
-        seq_output = self.forward(item_seq, item_seq_len)
+        seq_output = self._get_output(item_seq, item_seq_len)
         test_items_emb = self.item_embedding.weight
         scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B n_items]
         return scores

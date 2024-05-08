@@ -2,6 +2,7 @@ import mlflow
 import numpy as np
 import torch
 from omegaconf import DictConfig, ListConfig
+from recbole.data.interaction import Interaction
 from transformers import BatchEncoding
 
 
@@ -37,6 +38,12 @@ def log_params_from_omegaconf_dict(params):
 
 def batch_on_device(batch: dict[str, torch.Tensor] | BatchEncoding):
     return {k: v.cuda() for k, v in batch.items()}
+
+
+def real_batch_on_device(batch: Interaction):
+    for column in batch.columns:
+        batch[column] = batch[column].cuda()
+    return batch
 
 
 def endless_dataloader(data_loader, max_iteration=1000000):

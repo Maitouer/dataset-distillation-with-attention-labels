@@ -6,12 +6,15 @@ import evaluate
 import numpy as np
 import torch
 from distilled_data import DistilledData
-from model import LearnerModel, SASRec
+from model import SASRec
+from recbole.config import Config
+from recbole.data.dataloader import FullSortEvalDataLoader
+from recbole.evaluator import Collector
+from recbole.evaluator import Evaluator as RecboleEvaluator
 from torch.cuda import amp
-from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
-from utils import average, batch_on_device
+from utils import average, batch_on_device, real_batch_on_device
 
 from data import TASK_ATTRS
 
@@ -60,15 +63,17 @@ class EvaluateConfig:
 
 
 class Evaluator:
-    def __init__(self, config: EvaluateConfig, model: SASRec):
+    def __init__(self, config: EvaluateConfig, recbole_config: Config, model: SASRec):
         self.config = config
+        self.recbole_config = recbole_config
         self.model = model
-        self.metric = Metric(config.task_name)
+        self.eval_collector = Collector(self.recbole_config)
+        self.recbole_evaluator = RecboleEvaluator(self.recbole_config)
 
     def evaluate(
         self,
         distilled_data: DistilledData,
-        eval_loader: DataLoader,
+        eval_loader: FullSortEvalDataLoader,
         n_eval_model: Optional[int] = None,
         verbose: bool = False,
     ) -> dict[str, tuple[float]]:
@@ -117,26 +122,31 @@ class Evaluator:
             batch = distilled_data.get_batch(step)
 
             # compute loss
-            outputs = model(
-                inputs_embeds=batch["inputs_embeds"],
-                labels=batch["labels"],
-                output_attentions=True,
-            )
-            loss_task = outputs.loss.mean()
+            outputs = model(batch["inputs_embeds"])
+            loss_task = outputs
+            loss_attn = 0.0
 
-            attention_labels = batch["attention_labels"]
-            if attention_labels is not None:
-                attn_weights = torch.stack(outputs.attentions, dim=1)
-                attn_weights = attn_weights[..., : attention_labels.size(-2), :]
-                assert attn_weights.shape == attention_labels.shape
-                loss_attn = F.kl_div(
-                    torch.log(attn_weights + 1e-12),
-                    attention_labels,
-                    reduction="none",
-                )
-                loss_attn = loss_attn.sum(-1).mean()
-            else:
-                loss_attn = 0.0
+            # # compute loss
+            # outputs = model(
+            #     inputs_embeds=batch["inputs_embeds"],
+            #     labels=batch["labels"],
+            #     output_attentions=True,
+            # )
+            # loss_task = outputs.loss.mean()
+            # attention_labels = batch["attention_labels"]
+            # if attention_labels is not None:
+            #     attn_weights = torch.stack(outputs.attentions, dim=1)
+            #     attn_weights = attn_weights[..., : attention_labels.size(-2), :]
+            #     assert attn_weights.shape == attention_labels.shape
+            #     loss_attn = F.kl_div(
+            #         torch.log(attn_weights + 1e-12),
+            #         attention_labels,
+            #         reduction="none",
+            #     )
+            #     loss_attn = loss_attn.sum(-1).mean()
+            # else:
+            #     loss_attn = 0.0
+
             loss = loss_task + distilled_data.attention_loss_lambda * loss_attn
 
             # update model
@@ -148,37 +158,55 @@ class Evaluator:
                         params.sub_(batch["lr"] * params.grad)
 
     def evaluate_model(
-        self, model: LearnerModel, data_loader: DataLoader
+        self, model: SASRec, data_loader: FullSortEvalDataLoader
     ) -> dict[str, float]:
+        """Evaluate on synthetic-valid-data"""
         model.eval()
 
         total_loss, num_samples = 0, 0
-        for batch in tqdm(
-            data_loader, dynamic_ncols=True, leave=False, desc="Evaluate learner"
+        for i, batch in enumerate(
+            tqdm(data_loader, dynamic_ncols=True, leave=False, desc="Evaluate learner")
         ):
-            batch = batch_on_device(batch)
+            # evaluate
+            model.eval()
+
+            interaction, history_index, positive_u, positive_i = batch
+            interaction = real_batch_on_device(interaction)
 
             with torch.no_grad():
                 with amp.autocast(enabled=self.use_amp, dtype=self.amp_dtype):
-                    outputs = model(**batch)
+                    outputs = model(interaction)
+                    scores = model.full_sort_predict(interaction)
+            # Calculate loss
+            total_loss += outputs.item()
+            num_samples += len(interaction)
+            # Calculate metrics
+            tot_item_num = data_loader._dataset.item_num
+            scores = scores.view(-1, tot_item_num)
+            scores[:, 0] = -np.inf
+            if history_index is not None:
+                scores[history_index] = -np.inf
+            self.eval_collector.eval_batch_collect(
+                scores, interaction, positive_u, positive_i
+            )
 
-            assert outputs.loss.shape == (len(batch["labels"]),)
+        self.eval_collector.model_collect(model)
+        struct = self.eval_collector.get_data_struct()
+        result = self.recbole_evaluator.evaluate(struct)
+        result["loss"] = total_loss / num_samples
 
-            self.metric.add_batch(outputs.logits, batch["labels"])
-            total_loss += outputs.loss.sum().item()
-            num_samples += len(batch["labels"])
+        dict_result = dict(result)
+        dict_result = {k.replace("@", "_at_"): float(v) for k, v in dict_result.items()}
 
-        results = self.metric.compute()
-        results["loss"] = total_loss / num_samples
-
-        return results
+        return dict_result
 
     def evaluate_fast(
         self,
         distilled_data: DistilledData,
-        eval_loader: DataLoader,
+        eval_loader: FullSortEvalDataLoader,
         n_eval_model: Optional[int] = None,
     ) -> dict[str, float]:
+        """Evaluate on real-valid-data"""
         model = self.model.cuda()
         distilled_data.cuda()
 
@@ -193,26 +221,41 @@ class Evaluator:
         ):
             if i % reset_model_interval == 0:
                 # train model
-                model.init_weights()
+                model.apply(model._init_weights)
                 self.train_model(model, distilled_data)
 
             # evaluate
             model.eval()
-            batch = batch_on_device(batch)
+
+            interaction, history_index, positive_u, positive_i = batch
+            interaction = real_batch_on_device(interaction)
+
             with torch.no_grad():
                 with amp.autocast(enabled=self.use_amp, dtype=self.amp_dtype):
-                    outputs = model(**batch)
+                    outputs = model(interaction)
+                    scores = model.full_sort_predict(interaction)
+            # Calculate loss
+            total_loss += outputs.item()
+            num_samples += len(interaction)
+            # Calculate metrics
+            tot_item_num = eval_loader._dataset.item_num
+            scores = scores.view(-1, tot_item_num)
+            scores[:, 0] = -np.inf
+            if history_index is not None:
+                scores[history_index] = -np.inf
+            self.eval_collector.eval_batch_collect(
+                scores, interaction, positive_u, positive_i
+            )
 
-            assert outputs.loss.shape == (len(batch["labels"]),)
+        self.eval_collector.model_collect(model)
+        struct = self.eval_collector.get_data_struct()
+        result = self.recbole_evaluator.evaluate(struct)
+        result["loss"] = total_loss / num_samples
 
-            self.metric.add_batch(outputs.logits, batch["labels"])
-            total_loss += outputs.loss.sum().item()
-            num_samples += len(batch["labels"])
+        dict_result = dict(result)
+        dict_result = {k.replace("@", "_at_"): float(v) for k, v in dict_result.items()}
 
-        results = self.metric.compute()
-        results["loss"] = total_loss / num_samples
-
-        return results
+        return dict_result
 
     @property
     def use_amp(self):
