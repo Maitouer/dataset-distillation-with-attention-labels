@@ -23,6 +23,8 @@ class DistilledDataConfig:
     attention_label_type: str = "none"  # ["none", "cls", "all"]
     attention_loss_lambda: float = 1.0
     distilled_ratio: float = 0.2
+    syn_seq_num: int = 50
+    syn_seq_len: int = 20
     lr_for_step: bool = True
     lr_init: float = 1.0e-2
     lr_linear_decay: bool = False
@@ -68,10 +70,12 @@ class DistilledInputEmbedding(DistilledFeature):
         seq_length: int,
         item_num: int,
         distill_ratio: float = 0.2,
+        syn_seq_num: int = 50,
+        syn_seq_len: int = 20,
     ):
         initial_embeds = torch.randn(
-            int(seq_num * distill_ratio),
-            seq_length,
+            syn_seq_num,
+            syn_seq_len,
             item_num,
             requires_grad=True,
         )
@@ -163,7 +167,7 @@ class DistilledData:
             train_config = LearnerTrainConfig(**train_config)
         self.train_config = train_config
 
-        self.data_size = int(seq_num * self.config.distilled_ratio)
+        self.data_size = self.config.syn_seq_num
         self.num_layers = num_layers
         self.num_heads = num_heads
 
@@ -175,6 +179,8 @@ class DistilledData:
             seq_length=seq_length,
             item_num=num_items,
             distill_ratio=self.config.distilled_ratio,
+            syn_seq_num=self.config.syn_seq_num,
+            syn_seq_len=self.config.syn_seq_len,
         )
         self.lr = DistilledLR(
             lr_init=config.lr_init,

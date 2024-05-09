@@ -41,13 +41,15 @@ distilled_data:
   attention_label_type: none # [none, cls, all]
   attention_loss_lambda: 1.0
   distilled_ratio: 0.6
+  syn_seq_num: 64
+  syn_seq_len: 20
   lr_for_step: True
   lr_init: 1.0e-2
   lr_linear_decay: False
-  fix_order: False
+  fix_order: True
 
 learner_train:
-  train_step: 1
+  train_step: 8
   batch_size: 8
 
 train:
