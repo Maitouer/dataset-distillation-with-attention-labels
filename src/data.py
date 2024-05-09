@@ -21,7 +21,6 @@ TASK_ATTRS = {
             "McAuley-Lab/Amazon-Reviews-2023",
             "0core_rating_only_All_Beauty",
         ),
-        "metric_keys": ("accuracy", "recall"),
     },
     # Amazon: Books
     "books": {
@@ -29,7 +28,6 @@ TASK_ATTRS = {
             "McAuley-Lab/Amazon-Reviews-2023",
             "0core_rating_only_Books",
         ),
-        "metric_keys": ("accuracy", "recall"),
     },
     # Amazon: Digital_Music
     "music": {
@@ -37,7 +35,13 @@ TASK_ATTRS = {
             "McAuley-Lab/Amazon-Reviews-2023",
             "0core_rating_only_Digital_Music",
         ),
-        "metric_keys": ("accuracy", "recall"),
+    },
+    # Amazon Magazine_Subscriptions
+    "magazine": {
+        "load_args": (
+            "McAuley-Lab/Amazon-Reviews-2023",
+            "0core_rating_only_Magazine_Subscriptions",
+        ),
     },
 }
 
@@ -177,7 +181,9 @@ class DataModule:
         # dataset filtering
         self.datasets = SequentialDataset(config)
         # dataset splitting
-        self.train_loader, self.valid_loader, _ = data_preparation(config, self.datasets)
+        self.train_loader, self.valid_loader, _ = data_preparation(
+            config, self.datasets
+        )
 
     def train_loader(self):
         return self.train_loader
