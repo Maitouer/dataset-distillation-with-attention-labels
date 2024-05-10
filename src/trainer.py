@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import mlflow
 import torch
-from distilled_data import DistilledData, DistilledDataConfig
+from distilled_data import DistilledData
 from evaluator import Evaluator
 from model import SASRec
 from recbole.data.dataloader import FullSortEvalDataLoader, TrainDataLoader
@@ -12,10 +12,9 @@ from torch.cuda import amp
 from torch.nn import functional as F
 from torch.optim import SGD, Adam, AdamW, Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import get_scheduler
-from utils import batch_on_device, real_batch_on_device
+from utils import real_batch_on_device
 
 logger = logging.getLogger(__name__)
 

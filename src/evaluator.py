@@ -14,9 +14,8 @@ from recbole.data.dataloader import FullSortEvalDataLoader
 from recbole.evaluator import Collector
 from recbole.evaluator import Evaluator as RecboleEvaluator
 from torch.cuda import amp
-from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
-from utils import average, batch_on_device, real_batch_on_device
+from utils import average, real_batch_on_device
 
 from data import TASK_ATTRS
 

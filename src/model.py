@@ -5,8 +5,6 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as fn
 from recbole.model.abstract_recommender import SequentialRecommender
-
-# from recbole.model.layers import TransformerEncoder
 from recbole.model.loss import BPRLoss
 from torch import nn
 
