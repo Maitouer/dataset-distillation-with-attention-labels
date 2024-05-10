@@ -5,6 +5,8 @@ from typing import Optional
 import evaluate
 import numpy as np
 import torch
+import torch.nn.functional as F
+import torch.utils
 from distilled_data import DistilledData
 from model import SASRec
 from recbole.config import Config
@@ -122,30 +124,21 @@ class Evaluator:
             batch = distilled_data.get_batch(step)
 
             # compute loss
-            outputs = model(batch["inputs_embeds"])
+            outputs, attentions = model(batch["inputs_embeds"])
             loss_task = outputs
-            loss_attn = 0.0
-
-            # # compute loss
-            # outputs = model(
-            #     inputs_embeds=batch["inputs_embeds"],
-            #     labels=batch["labels"],
-            #     output_attentions=True,
-            # )
-            # loss_task = outputs.loss.mean()
-            # attention_labels = batch["attention_labels"]
-            # if attention_labels is not None:
-            #     attn_weights = torch.stack(outputs.attentions, dim=1)
-            #     attn_weights = attn_weights[..., : attention_labels.size(-2), :]
-            #     assert attn_weights.shape == attention_labels.shape
-            #     loss_attn = F.kl_div(
-            #         torch.log(attn_weights + 1e-12),
-            #         attention_labels,
-            #         reduction="none",
-            #     )
-            #     loss_attn = loss_attn.sum(-1).mean()
-            # else:
-            #     loss_attn = 0.0
+            attention_labels = batch["attention_labels"]
+            if attention_labels is not None:
+                attn_weights = attentions
+                attn_weights = attn_weights[..., : attention_labels.size(-2), :]
+                assert attn_weights.shape == attention_labels.shape
+                loss_attn = F.kl_div(
+                    torch.log(attn_weights + 1e-12),
+                    attention_labels,
+                    reduction="none",
+                )
+                loss_attn = loss_attn.sum(-1).mean()
+            else:
+                loss_attn = 0.0
 
             loss = loss_task + distilled_data.attention_loss_lambda * loss_attn
 
@@ -175,7 +168,7 @@ class Evaluator:
 
             with torch.no_grad():
                 with amp.autocast(enabled=self.use_amp, dtype=self.amp_dtype):
-                    outputs = model(interaction)
+                    outputs, _ = model(interaction)
                     scores = model.full_sort_predict(interaction)
             # Calculate loss
             total_loss += outputs.item()
@@ -232,7 +225,7 @@ class Evaluator:
 
             with torch.no_grad():
                 with amp.autocast(enabled=self.use_amp, dtype=self.amp_dtype):
-                    outputs = model(interaction)
+                    outputs, _ = model(interaction)
                     scores = model.full_sort_predict(interaction)
             # Calculate loss
             total_loss += outputs.item()

@@ -1,6 +1,6 @@
 base:
   experiment_name: ${data.task_name}.${model.model_name}
-  method: distilled-ratio_${distilled_data.distilled_ratio}.train-step_${learner_train.train_step}.batch-size_${learner_train.batch_size}.attn-label-type_${distilled_data.attention_label_type}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
+  method: syn_seq_num_${distilled_data.syn_seq_num}.syn_seq_len_${distilled_data.syn_seq_len}.attn_label_type_${distilled_data.attention_label_type}.train_step_${learner_train.train_step}.batch_size_${learner_train.batch_size}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
   run_name: ${base.method}.${now:%Y-%m-%d.%H-%M-%S}
   save_dir_root: ./save
   save_method_dir: ${base.save_dir_root}/${base.experiment_name}/${base.method}
@@ -38,9 +38,8 @@ model:
 
 distilled_data:
   pretrained_data_path: null
-  attention_label_type: none # [none, cls, all]
+  attention_label_type: 'all' # [none, cls, all]
   attention_loss_lambda: 1.0
-  distilled_ratio: 0.6
   syn_seq_num: 64
   syn_seq_len: 20
   lr_for_step: True
@@ -55,7 +54,7 @@ learner_train:
 train:
   skip_train: False
   inner_loop: ${learner_train.train_step}
-  epoch: 1
+  epoch: 200
   lr_inputs_embeds: 1.0e-2
   lr_attention_labels: ${train.lr_inputs_embeds}
   lr_labels: ${train.lr_inputs_embeds}

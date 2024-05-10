@@ -66,12 +66,9 @@ class DistilledFeature(metaclass=ABCMeta):
 class DistilledInputEmbedding(DistilledFeature):
     def __init__(
         self,
-        seq_num: int,
-        seq_length: int,
-        item_num: int,
-        distill_ratio: float = 0.2,
         syn_seq_num: int = 50,
         syn_seq_len: int = 20,
+        item_num: int = 50,
     ):
         initial_embeds = torch.randn(
             syn_seq_num,
@@ -88,9 +85,8 @@ class DistilledInputEmbedding(DistilledFeature):
 class DistilledAttentionLabels(DistilledFeature):
     def __init__(
         self,
-        seq_num: int,
-        seq_length: int,
-        distill_ratio: float = 0.2,
+        syn_seq_num: int = 50,
+        syn_seq_len: int = 20,
         num_layers: int = 12,
         num_heads: int = 12,
         attention_label_type: Literal["cls", "all"] = "cls",
@@ -98,11 +94,11 @@ class DistilledAttentionLabels(DistilledFeature):
         assert attention_label_type in ["cls", "all"]
 
         self.data = torch.randn(
-            int(seq_num * distill_ratio),
+            syn_seq_num,
             num_layers,
             num_heads,
-            1 if attention_label_type == "cls" else seq_length,
-            seq_length,
+            1 if attention_label_type == "cls" else syn_seq_len - 1,
+            syn_seq_len - 1,
             requires_grad=True,
         )
 
@@ -175,12 +171,9 @@ class DistilledData:
             assert (self.data_size) % train_config.batch_size == 0
 
         self.inputs_embeds = DistilledInputEmbedding(
-            seq_num=seq_num,
-            seq_length=seq_length,
-            item_num=num_items,
-            distill_ratio=self.config.distilled_ratio,
             syn_seq_num=self.config.syn_seq_num,
             syn_seq_len=self.config.syn_seq_len,
+            item_num=num_items,
         )
         self.lr = DistilledLR(
             lr_init=config.lr_init,
@@ -196,9 +189,8 @@ class DistilledData:
         # attention labels
         if config.attention_label_type in ("cls", "all"):
             self.attention_labels = DistilledAttentionLabels(
-                seq_num=seq_num,
-                seq_length=seq_length,
-                distill_ratio=self.config.distilled_ratio,
+                syn_seq_num=self.config.syn_seq_num,
+                syn_seq_len=self.config.syn_seq_len,
                 num_layers=num_layers,
                 num_heads=num_heads,
                 attention_label_type=config.attention_label_type,

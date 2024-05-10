@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import mlflow
 import torch
-from distilled_data import DistilledData
+from distilled_data import DistilledData, DistilledDataConfig
 from evaluator import Evaluator
 from model import SASRec
 from recbole.data.dataloader import FullSortEvalDataLoader, TrainDataLoader
@@ -58,6 +58,10 @@ class Trainer:
         distilled_data.cuda()
 
         max_training_steps = self.config.epoch * len(train_loader)
+
+        logger.info(f"Train loader length: (`{len(train_loader)}`)")
+        logger.info(f"Valid loader length: (`{len(valid_loader)}`)")
+
         if self.config.log_interval == -1:
             self.config.log_interval = len(train_loader) // 10
 
@@ -105,29 +109,34 @@ class Trainer:
                     params = dict(model.named_parameters())
                     buffers = dict(model.named_buffers())
 
-                    def compute_loss(params, buffers, interaction):
+                    def compute_loss(
+                        params,
+                        buffers,
+                        interaction=None,
+                        attention_labels=None,
+                        **kwargs,
+                    ):
                         with amp.autocast(enabled=self.use_amp, dtype=self.amp_dtype):
-                            outputs = torch.func.functional_call(
+                            outputs, attentions = torch.func.functional_call(
                                 model, (params, buffers), args=interaction
                             )
+
                         loss_task = outputs
 
-                        # if attention_labels is not None:
-                        #     attn_weights = torch.stack(outputs.attentions, dim=1)
-                        #     attn_weights = attn_weights[
-                        #         ..., : attention_labels.size(-2), :
-                        #     ]
-                        #     assert attn_weights.shape == attention_labels.shape
-                        #     loss_attn = F.kl_div(
-                        #         torch.log(attn_weights + 1e-12),
-                        #         attention_labels,
-                        #         reduction="none",
-                        #     )
-                        #     loss_attn = loss_attn.sum(-1).mean()
-                        # else:
-                        #     loss_attn = 0.0
-
-                        loss_attn = 0.0
+                        if attention_labels is not None:
+                            attn_weights = attentions
+                            attn_weights = attn_weights[
+                                ..., : attention_labels.size(-2), :
+                            ]
+                            assert attn_weights.shape == attention_labels.shape
+                            loss_attn = F.kl_div(
+                                torch.log(attn_weights + 1e-12),
+                                attention_labels,
+                                reduction="none",
+                            )
+                            loss_attn = loss_attn.sum(-1).mean()
+                        else:
+                            loss_attn = 0.0
 
                         return (
                             loss_task + distilled_data.attention_loss_lambda * loss_attn
@@ -137,13 +146,12 @@ class Trainer:
                         batch_syn = distilled_data.get_batch(inner_step)
 
                         inputs_embeds = batch_syn.pop("inputs_embeds")
+
                         syn_lr = batch_syn.pop("lr")
 
                         # update model on distilled data
                         grads = torch.func.grad(compute_loss)(
-                            params,
-                            buffers,
-                            interaction=inputs_embeds,
+                            params, buffers, interaction=inputs_embeds, **batch_syn
                         )
                         params = {
                             name: p - syn_lr * grads[name] for name, p in params.items()

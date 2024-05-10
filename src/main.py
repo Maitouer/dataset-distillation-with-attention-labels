@@ -140,7 +140,7 @@ def main(config: Config):
     logger.info(f"Final Results: {results}")
     if not os.path.exists(config.base.save_dir):
         os.mkdir(config.base.save_dir)
-    save_path = os.path.join(config.base.save_dir, "results.json") 
+    save_path = os.path.join(config.base.save_dir, "results.json")
     json.dump(results, open(save_path, "w"))
     mlflow.log_artifact(save_path)
 

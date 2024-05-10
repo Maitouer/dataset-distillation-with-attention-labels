@@ -75,19 +75,17 @@ class DataModule:
 
     def __init__(self, config):
         self.config = config
-
         # load raw dataset
         self.dataset_attr = TASK_ATTRS[self.config.task_name]
         self.datasets: DatasetDict = self.get_dataset()
-        logger.info(f"Datasets: {self.datasets}")
-
         # preprocessed_dataset
         self.run_preprocess()
-
         # generate dataloader
         self.train_loader = None
         self.valid_loader = None
         self.get_dataloader()
+
+        logger.info(f"Datasets: {self.datasets}")
 
     def get_dataset(self):
         """load raw datasets from source"""
