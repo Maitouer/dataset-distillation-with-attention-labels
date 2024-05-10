@@ -22,7 +22,6 @@ MODEL_ATTRS = {
 @dataclass
 class ModelConfig:
     """Config for Learner Model"""
-
     task_name: str
     model_name: str = "SASRec"
     use_pretrained_model: bool = True
