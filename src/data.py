@@ -83,6 +83,7 @@ class DataModule:
         # generate dataloader
         self.train_loader = None
         self.valid_loader = None
+        self.test_loader = None
         self.get_dataloader()
 
         logger.info(f"Datasets: {self.datasets}")
@@ -179,7 +180,7 @@ class DataModule:
         # dataset filtering
         self.datasets = SequentialDataset(config)
         # dataset splitting
-        self.train_loader, self.valid_loader, _ = data_preparation(
+        self.train_loader, self.valid_loader, self.test_loader = data_preparation(
             config, self.datasets
         )
 
@@ -188,3 +189,6 @@ class DataModule:
 
     def valid_loader(self):
         return self.valid_loader
+
+    def test_loader(self):
+        return self.test_loader

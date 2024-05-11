@@ -13,6 +13,7 @@ from hydra.core.config_store import ConfigStore
 from model import ModelConfig, SASRec
 from omegaconf import OmegaConf
 from recbole.config import Config as RecBoleConfig
+from sasrec_trainer import SASRecTrainer
 from tqdm.contrib.logging import logging_redirect_tqdm
 from trainer import TrainConfig, Trainer
 from transformers import set_seed
@@ -96,6 +97,21 @@ def main(config: Config):
     )
     model = SASRec(recbole_config, data_module.datasets)
 
+    # Run baseline
+    if config.base.run_baseline:
+        trainer = SASRecTrainer(recbole_config)
+        trainer.fit(
+            train_loader=data_module.train_loader,
+            valid_loader=data_module.valid_loader,
+            show_progress=True,
+        )
+        test_result = trainer.evaluate(
+            data_module.test_loader,
+            load_best_model=True,
+        )
+        logger.info(f"Baseline Results: {test_result}")
+        return
+
     # Distilled data
     if config.distilled_data.pretrained_data_path is not None:
         distilled_data = DistilledData.from_pretrained(
@@ -131,7 +147,7 @@ def main(config: Config):
 
     # Evaluate
     results = evaluator.evaluate(
-        distilled_data, eval_loader=data_module.valid_loader, verbose=False
+        distilled_data, eval_loader=data_module.test_loader, verbose=False
     )
     mlflow.log_metrics({f"avg.{k}": v[0] for k, v in results.items()})
     mlflow.log_metrics({f"std.{k}": v[1] for k, v in results.items()})
