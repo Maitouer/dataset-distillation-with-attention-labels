@@ -1,5 +1,5 @@
+import logging
 import os
-from logging import getLogger
 from time import time
 
 import mlflow
@@ -25,7 +25,7 @@ from tqdm import tqdm
 class SASRecTrainer(Trainer):
     def __init__(self, config, model):
         super().__init__(config, model)
-        self.logger = getLogger()
+        self.logger = logging.getLogger(__name__)
         self.learner = config["learner"]
         self.learning_rate = config["learning_rate"]
         self.epochs = config["epochs"]
