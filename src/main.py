@@ -7,13 +7,13 @@ from functools import wraps
 
 import hydra
 import mlflow
+from baseline_trainer import SASRecTrainer
 from distilled_data import DistilledData, DistilledDataConfig, LearnerTrainConfig
 from evaluator import EvaluateConfig, Evaluator
 from hydra.core.config_store import ConfigStore
 from model import ModelConfig, SASRec
 from omegaconf import OmegaConf
 from recbole.config import Config as RecBoleConfig
-from sasrec_trainer import SASRecTrainer
 from tqdm.contrib.logging import logging_redirect_tqdm
 from trainer import TrainConfig, Trainer
 from transformers import set_seed
