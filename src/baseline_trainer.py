@@ -4,7 +4,6 @@ from time import time
 import torch
 from recbole.trainer import Trainer
 from recbole.utils import get_gpu_usage, set_color
-from torch.nn.parallel import DistributedDataParallel
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from tqdm import tqdm
 
