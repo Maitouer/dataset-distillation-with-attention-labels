@@ -7,7 +7,7 @@ from functools import wraps
 
 import hydra
 import mlflow
-from baseline_trainer import SASRecTrainer
+from baseline_trainer import DDPPretrainTrainer
 from distilled_data import DistilledData, DistilledDataConfig, LearnerTrainConfig
 from evaluator import EvaluateConfig, Evaluator
 from hydra.core.config_store import ConfigStore
@@ -97,19 +97,10 @@ def main(config: Config):
     )
     model = SASRec(recbole_config, data_module.datasets)
 
-    # Run baseline
-    if config.base.run_baseline:
-        trainer = SASRecTrainer(recbole_config)
-        trainer.fit(
-            train_loader=data_module.train_loader,
-            valid_loader=data_module.valid_loader,
-            show_progress=True,
-        )
-        test_result = trainer.evaluate(
-            data_module.test_loader,
-            load_best_model=True,
-        )
-        logger.info(f"Baseline Results: {test_result}")
+    # Pretrain
+    if config.base.pretrain:
+        trainer = DDPPretrainTrainer(recbole_config, model)
+        trainer.pretrain(train_data=data_module.train_loader)
         return
 
     # Distilled data

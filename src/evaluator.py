@@ -248,3 +248,11 @@ class Evaluator:
         dict_result = {k.replace("@", "_at_"): float(v) for k, v in dict_result.items()}
 
         return dict_result
+
+    @property
+    def use_amp(self):
+        return self.config.fp16 or self.config.bf16
+
+    @property
+    def amp_dtype(self):
+        return torch.float16 if self.config.fp16 else torch.bfloat16

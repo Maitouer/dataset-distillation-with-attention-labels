@@ -2,10 +2,15 @@
 data_path: data
 load_col:
   inter: [user_id, item_id, timestamp]
-checkpoint_dir: 'baseline'
+checkpoint_dir: 'checkpoint'
 train_neg_sample_args: ~
 MAX_ITEM_LIST_LENGTH: 50
 
 
 topk: [5, 10]
 metrics: ["Recall","MRR","NDCG","Hit","Precision"]
+
+pretrain_epochs: 10
+save_step: 5
+rank: 0
+world_size: 1
