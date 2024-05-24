@@ -2,3 +2,4 @@ mlruns/
 save/
 data/
 .vscode/
+log_tensorboard

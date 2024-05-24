@@ -98,10 +98,10 @@ def main(config: Config):
     model = SASRec(recbole_config, data_module.datasets)
 
     # Pretrain
-    if config.base.pretrain:
+    if config.model.use_pretrained_model:
         trainer = DDPPretrainTrainer(recbole_config, model)
         trainer.pretrain(train_data=data_module.train_loader)
-        return
+        model.apply(model._init_weights)
 
     # Distilled data
     if config.distilled_data.pretrained_data_path is not None:

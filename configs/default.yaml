@@ -1,13 +1,12 @@
 base:
   experiment_name: ${data.task_name}.${model.model_name}
-  method: syn_seq_num_${distilled_data.syn_seq_num}.syn_seq_len_${distilled_data.syn_seq_len}.attn_label_type_${distilled_data.attention_label_type}.train_step_${learner_train.train_step}.batch_size_${learner_train.batch_size}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
+  method: pretrain_${base.pretrain}.syn_seq_num_${distilled_data.syn_seq_num}.syn_seq_len_${distilled_data.syn_seq_len}.attn_label_type_${distilled_data.attention_label_type}.train_step_${learner_train.train_step}.batch_size_${learner_train.batch_size}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
   run_name: ${base.method}.${now:%Y-%m-%d.%H-%M-%S}
   save_dir_root: ./save
   save_method_dir: ${base.save_dir_root}/${base.experiment_name}/${base.method}
   save_dir: ${base.save_method_dir}/${now:%Y-%m-%d.%H-%M-%S}
   data_dir_root: ./data
   seed: 42
-  # run_baseline: True
   pretrain: True
 
 data:

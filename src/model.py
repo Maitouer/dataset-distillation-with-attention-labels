@@ -22,6 +22,7 @@ MODEL_ATTRS = {
 @dataclass
 class ModelConfig:
     """Config for Learner Model"""
+
     task_name: str
     model_name: str = "SASRec"
     use_pretrained_model: bool = True
@@ -105,20 +106,41 @@ class SASRec(SequentialRecommender):
             raise NotImplementedError("Make sure 'loss_type' in ['BPR', 'CE']!")
 
         # parameters initialization
-        self.apply(self._init_weights)
+        self.config = config
+        self.pretrained_model_state_dict = None
+
+        # self.apply(self._init_weights)
+
+        # def _init_weights(self, module):
+        #     """Initialize the weights"""
+        #     if isinstance(module, (nn.Linear, nn.Embedding)):
+        #         module.weight.data.normal_(mean=0.0, std=self.initializer_range)
+        #     elif isinstance(module, nn.LayerNorm):
+        #         module.bias.data.zero_()
+        #         module.weight.data.fill_(1.0)
+        #     if isinstance(module, nn.Linear) and module.bias is not None:
+        #         module.bias.data.zero_()
 
     def _init_weights(self, module):
         """Initialize the weights"""
-        if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-        if isinstance(module, nn.Linear) and module.bias is not None:
-            module.bias.data.zero_()
-
-    def initialize_parameters(self):
-        self.apply(self._init_weights)
+        if self.config.use_pretrained_model:
+            if self.pretrained_model_state_dict is None:
+                pretrained_model_path = f"{self.config.checkpoint_dir}/{self.config.model_name}-{self.config.task_name}-{self.config.pretrain_epochs}.pth"
+                self.pretrained_model_state_dict = torch.load(pretrained_model_path)[
+                    "state_dict"
+                ]
+            if module.__class__.__name__ in self.pretrained_model_state_dict:
+                module.load_state_dict(
+                    self.pretrained_model_state_dict[module.__class__.__name__]
+                )
+        else:
+            if isinstance(module, (nn.Linear, nn.Embedding)):
+                module.weight.data.normal_(mean=0.0, std=self.initializer_range)
+            elif isinstance(module, nn.LayerNorm):
+                module.bias.data.zero_()
+                module.weight.data.fill_(1.0)
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                module.bias.data.zero_()
 
     def _get_output(self, item_seq, item_seq_len):
         position_ids = torch.arange(
