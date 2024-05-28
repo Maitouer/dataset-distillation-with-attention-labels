@@ -2,7 +2,6 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-import evaluate
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -17,39 +16,7 @@ from torch.cuda import amp
 from tqdm import tqdm, trange
 from utils import average, real_batch_on_device
 
-from data import TASK_ATTRS
-
 logger = logging.getLogger(__name__)
-
-
-class Metric:
-    """Metric class
-    >>> metric = Metric(config.data.task_name)
-    >>> metric.add_batch(logits, labels)
-    >>> results = metric.compute()
-    """
-
-    def __init__(self, task_name):
-        assert task_name in TASK_ATTRS
-        self.metric = evaluate.load(*TASK_ATTRS[task_name]["metric_keys"])
-        self.preprocess = preprocess_for_classification
-
-    def add_batch(self, logits: torch.Tensor, labels: torch.Tensor):
-        return self.metric.add_batch(**self.preprocess(logits, labels))
-
-    def compute(self) -> dict[str, float]:
-        results = self.metric.compute()
-        if len(results) > 1:
-            results["combined_score"] = np.mean(list(results.values())).item()
-        return results
-
-
-def preprocess_for_classification(
-    logits: torch.Tensor, labels: torch.Tensor
-) -> dict[str, list[int]]:
-    assert logits.ndim == 2
-    assert labels.ndim == 1
-    return {"predictions": logits.argmax(-1).tolist(), "references": labels.tolist()}
 
 
 @dataclass

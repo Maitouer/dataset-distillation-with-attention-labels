@@ -7,7 +7,8 @@ from functools import wraps
 
 import hydra
 import mlflow
-from baseline_trainer import DDPPretrainTrainer
+
+# from baseline_trainer import DDPPretrainTrainer
 from distilled_data import DistilledData, DistilledDataConfig, LearnerTrainConfig
 from evaluator import EvaluateConfig, Evaluator
 from hydra.core.config_store import ConfigStore
@@ -97,11 +98,11 @@ def main(config: Config):
     )
     model = SASRec(recbole_config, data_module.datasets)
 
-    # Pretrain
-    if config.model.use_pretrained_model:
-        trainer = DDPPretrainTrainer(recbole_config, model)
-        trainer.pretrain(train_data=data_module.train_loader)
-        model.apply(model._init_weights)
+    # # Pretrain
+    # if config.model.use_pretrained_model:
+    #     trainer = DDPPretrainTrainer(recbole_config, model)
+    #     trainer.pretrain(train_data=data_module.train_loader)
+    #     model.apply(model._init_weights)
 
     # Distilled data
     if config.distilled_data.pretrained_data_path is not None:
@@ -112,8 +113,6 @@ def main(config: Config):
         distilled_data = DistilledData(
             config=config.distilled_data,
             train_config=config.learner_train,
-            seq_num=data_module.datasets.user_num,
-            seq_length=data_module.datasets.max_item_list_len,
             num_items=data_module.datasets.item_num,
             num_layers=model.n_layers,
             num_heads=model.n_heads,

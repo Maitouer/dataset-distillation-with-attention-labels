@@ -85,10 +85,10 @@ class DistilledInputEmbedding(DistilledFeature):
 class DistilledAttentionLabels(DistilledFeature):
     def __init__(
         self,
-        syn_seq_num: int = 50,
-        syn_seq_len: int = 20,
-        num_layers: int = 12,
-        num_heads: int = 12,
+        syn_seq_num: int,
+        syn_seq_len: int,
+        num_layers: int,
+        num_heads: int,
         attention_label_type: Literal["cls", "all"] = "cls",
     ):
         assert attention_label_type in ["cls", "all"]
@@ -149,8 +149,6 @@ class DistilledData:
         self,
         config: DistilledDataConfig,
         train_config: LearnerTrainConfig,
-        seq_num: int,  # real sequence numbers
-        seq_length: int,  # real sequence length
         num_items: int,  # real unique item numbers
         num_layers: Optional[int] = None,
         num_heads: Optional[int] = None,

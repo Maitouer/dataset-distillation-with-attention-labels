@@ -4,7 +4,7 @@ load_col:
   inter: [user_id, item_id, timestamp]
 checkpoint_dir: 'checkpoint'
 train_neg_sample_args: ~
-MAX_ITEM_LIST_LENGTH: 50
+MAX_ITEM_LIST_LENGTH: 500
 
 
 topk: [5, 10]

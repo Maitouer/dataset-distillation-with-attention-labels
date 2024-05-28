@@ -8,25 +8,12 @@ from recbole.model.abstract_recommender import SequentialRecommender
 from recbole.model.loss import BPRLoss
 from torch import nn
 
-MODEL_ATTRS = {
-    "SASRec": {
-        "dropout_keys": [
-            "attention_probs_dropout_prob",
-            "hidden_dropout_prob",
-            "classifier_dropout",
-        ],
-    },
-}
-
 
 @dataclass
 class ModelConfig:
     """Config for Learner Model"""
 
-    task_name: str
     model_name: str = "SASRec"
-    use_pretrained_model: bool = True
-    disable_dropout: bool = True
     n_layers: int = 2
     n_heads: int = 2
     hidden_size: int = 64
@@ -37,9 +24,6 @@ class ModelConfig:
     layer_norm_eps: float = 1e-12
     initializer_range: float = 0.02
     loss_type: str = "CE"
-
-    def __post_init__(self):
-        assert self.model_name in MODEL_ATTRS
 
 
 class SASRec(SequentialRecommender):
@@ -105,63 +89,18 @@ class SASRec(SequentialRecommender):
         else:
             raise NotImplementedError("Make sure 'loss_type' in ['BPR', 'CE']!")
 
-        # parameters initialization
-        self.config = config
-        self.pretrained_model_state_dict = None
-
-        # self.apply(self._init_weights)
-
-        # def _init_weights(self, module):
-        #     """Initialize the weights"""
-        #     if isinstance(module, (nn.Linear, nn.Embedding)):
-        #         module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-        #     elif isinstance(module, nn.LayerNorm):
-        #         module.bias.data.zero_()
-        #         module.weight.data.fill_(1.0)
-        #     if isinstance(module, nn.Linear) and module.bias is not None:
-        #         module.bias.data.zero_()
+        self.apply(self._init_weights)
 
     def _init_weights(self, module):
         """Initialize the weights"""
-        if self.config.use_pretrained_model:
-            if self.pretrained_model_state_dict is None:
-                pretrained_model_path = f"{self.config.checkpoint_dir}/{self.config.model_name}-{self.config.task_name}-{self.config.pretrain_epochs}.pth"
-                self.pretrained_model_state_dict = torch.load(pretrained_model_path)[
-                    "state_dict"
-                ]
-            if module.__class__.__name__ in self.pretrained_model_state_dict:
-                module.load_state_dict(
-                    self.pretrained_model_state_dict[module.__class__.__name__]
-                )
-        else:
-            if isinstance(module, (nn.Linear, nn.Embedding)):
-                module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-            elif isinstance(module, nn.LayerNorm):
-                module.bias.data.zero_()
-                module.weight.data.fill_(1.0)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+        if isinstance(module, nn.Linear) and module.bias is not None:
+            module.bias.data.zero_()
 
-    def _get_output(self, item_seq, item_seq_len):
-        position_ids = torch.arange(
-            item_seq.size(1), dtype=torch.long, device=item_seq.device
-        )
-        position_ids = position_ids.unsqueeze(0).expand_as(item_seq)
-        position_embedding = self.position_embedding(position_ids)
-
-        item_emb = self.item_embedding(item_seq)
-        input_emb = item_emb + position_embedding
-        input_emb = self.LayerNorm(input_emb)
-        input_emb = self.dropout(input_emb)
-
-        extended_attention_mask = self.get_attention_mask(item_seq)
-
-        trm_output, _ = self.trm_encoder(
-            input_emb, extended_attention_mask, output_all_encoded_layers=True
-        )
-        output = trm_output[-1]
-        output = self.gather_indexes(output, item_seq_len - 1)
-        return output  # [B H]
 
     def forward(self, interaction):
         """Synthetic data input"""
@@ -244,6 +183,27 @@ class SASRec(SequentialRecommender):
 
         """Return loss and self-attention probabilities [B, L, H, seq_len, seq_len]"""
         return loss, torch.stack(all_attention_probs, dim=1)
+
+    def _get_output(self, item_seq, item_seq_len):
+        position_ids = torch.arange(
+            item_seq.size(1), dtype=torch.long, device=item_seq.device
+        )
+        position_ids = position_ids.unsqueeze(0).expand_as(item_seq)
+        position_embedding = self.position_embedding(position_ids)
+
+        item_emb = self.item_embedding(item_seq)
+        input_emb = item_emb + position_embedding
+        input_emb = self.LayerNorm(input_emb)
+        input_emb = self.dropout(input_emb)
+
+        extended_attention_mask = self.get_attention_mask(item_seq)
+
+        trm_output, _ = self.trm_encoder(
+            input_emb, extended_attention_mask, output_all_encoded_layers=True
+        )
+        output = trm_output[-1]
+        output = self.gather_indexes(output, item_seq_len - 1)
+        return output  # [B H]
 
     def calculate_loss(self, interaction):
         item_seq = interaction[self.ITEM_SEQ]

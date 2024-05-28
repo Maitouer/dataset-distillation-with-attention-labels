@@ -26,13 +26,12 @@ class TrainConfig:
     epoch: int = 30
     lr_inputs_embeds: float = 1.0e-2
     lr_attention_labels: float = 1.0e-2
-    lr_labels: float = 1.0e-5
     lr_lr: float = 1.0e-2
     optimizer_type: str = "adamw"  # ["sgd", "adam"]
     scheduler_type: str = "linear"
     warmup_ratio: float = 0.1
     weight_decay: float = 0.0
-    max_grad_norm: float | None = 2.0
+    max_grad_norm: float = 2.0
     val_interval: int = 1
     log_interval: int = -1  # if -1 -> len(dataloader)//10
     n_eval_model: int = 5
@@ -279,7 +278,6 @@ class Trainer:
             grouped_params, lr=1.0
         )  # `lr=1.0` is not used (dummy)
         logger.info(f"Optimizer: {optimizer}")
-
         # learning rate scheduler
         scheduler = get_scheduler(
             name=self.config.scheduler_type,

@@ -1,16 +1,15 @@
 base:
   experiment_name: ${data.task_name}.${model.model_name}
-  method: pretrain_${base.pretrain}.syn_seq_num_${distilled_data.syn_seq_num}.syn_seq_len_${distilled_data.syn_seq_len}.attn_label_type_${distilled_data.attention_label_type}.train_step_${learner_train.train_step}.batch_size_${learner_train.batch_size}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
+  method: syn_seq_num_${distilled_data.syn_seq_num}.syn_seq_len_${distilled_data.syn_seq_len}.attn_label_type_${distilled_data.attention_label_type}.train_step_${learner_train.train_step}.batch_size_${learner_train.batch_size}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
   run_name: ${base.method}.${now:%Y-%m-%d.%H-%M-%S}
   save_dir_root: ./save
   save_method_dir: ${base.save_dir_root}/${base.experiment_name}/${base.method}
   save_dir: ${base.save_method_dir}/${now:%Y-%m-%d.%H-%M-%S}
   data_dir_root: ./data
   seed: 42
-  pretrain: True
 
 data:
-  task_name: books
+  task_name: magazine
   datasets_path: ${base.data_dir_root}/${data.task_name}/datasets
   preprocessed_datasets_path: ${base.data_dir_root}/${data.task_name}/${data.task_name}.inter
   train_batch_size: 32
@@ -22,10 +21,7 @@ data:
   recbole_config: ./configs/sasrec.yaml
 
 model:
-  task_name: ${data.task_name}
   model_name: SASRec
-  use_pretrained_model: True
-  disable_dropout: True
   n_layers: 2                     # (int) The number of transformer layers in transformer encoder.
   n_heads: 2                      # (int) The number of attention heads for multi-head attention layer.
   hidden_size: 64                 # (int) The number of features in the hidden state.
@@ -39,17 +35,17 @@ model:
 
 distilled_data:
   pretrained_data_path: null
-  attention_label_type: 'all' # [none, cls, all]
+  attention_label_type: 'none' # [none, cls, all]
   attention_loss_lambda: 1.0
-  syn_seq_num: 64
-  syn_seq_len: 20
+  syn_seq_num: 32
+  syn_seq_len: 500
   lr_for_step: True
   lr_init: 1.0e-2
   lr_linear_decay: False
   fix_order: True
 
 learner_train:
-  train_step: 8
+  train_step: 50
   batch_size: 8
 
 train:
@@ -58,9 +54,8 @@ train:
   epoch: 200
   lr_inputs_embeds: 1.0e-2
   lr_attention_labels: ${train.lr_inputs_embeds}
-  lr_labels: ${train.lr_inputs_embeds}
   lr_lr: ${train.lr_inputs_embeds}
-  optimizer_type: adamw # [sgd, adam, adamw]
+  optimizer_type: adam # [sgd, adam, adamw]
   scheduler_type: linear
   warmup_ratio: 0.1
   weight_decay: 0.0
