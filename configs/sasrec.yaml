@@ -10,5 +10,5 @@ MAX_ITEM_LIST_LENGTH: 500
 topk: [5, 10]
 metrics: ["Recall","MRR","NDCG","Hit","Precision"]
 
-pretrain_epochs: 100
-save_step: 100
+pretrain_epochs: 200
+save_step: 200

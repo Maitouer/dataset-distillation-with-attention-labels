@@ -22,6 +22,7 @@ data:
 
 model:
   model_name: SASRec
+  pretrain: True
   n_layers: 2                     # (int) The number of transformer layers in transformer encoder.
   n_heads: 2                      # (int) The number of attention heads for multi-head attention layer.
   hidden_size: 64                 # (int) The number of features in the hidden state.

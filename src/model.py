@@ -14,6 +14,7 @@ class ModelConfig:
     """Config for Learner Model"""
 
     model_name: str = "SASRec"
+    pretrain: bool = True
     n_layers: int = 2
     n_heads: int = 2
     hidden_size: int = 64

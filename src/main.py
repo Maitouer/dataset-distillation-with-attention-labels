@@ -7,13 +7,12 @@ from functools import wraps
 
 import hydra
 import mlflow
-
-# from baseline_trainer import DDPPretrainTrainer
 from distilled_data import DistilledData, DistilledDataConfig, LearnerTrainConfig
 from evaluator import EvaluateConfig, Evaluator
 from hydra.core.config_store import ConfigStore
 from model import ModelConfig, SASRec
 from omegaconf import OmegaConf
+from pretrainer import PretrainTrainer
 from recbole.config import Config as RecBoleConfig
 from tqdm.contrib.logging import logging_redirect_tqdm
 from trainer import TrainConfig, Trainer
@@ -98,11 +97,10 @@ def main(config: Config):
     )
     model = SASRec(recbole_config, data_module.datasets)
 
-    # # Pretrain
-    # if config.model.use_pretrained_model:
-    #     trainer = DDPPretrainTrainer(recbole_config, model)
-    #     trainer.pretrain(train_data=data_module.train_loader)
-    #     model.apply(model._init_weights)
+    # Pretrain
+    if config.model.pretrain:
+        trainer = PretrainTrainer(recbole_config, model)
+        trainer.pretrain(train_data=data_module.train_loader)
 
     # Distilled data
     if config.distilled_data.pretrained_data_path is not None:

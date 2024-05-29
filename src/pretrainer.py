@@ -8,13 +8,11 @@ from torch.nn.utils.clip_grad import clip_grad_norm_
 from tqdm import tqdm
 
 
-class DDPPretrainTrainer(Trainer):
+class PretrainTrainer(Trainer):
     def __init__(self, config, model):
-        super(DDPPretrainTrainer, self).__init__(config, model)
+        super(PretrainTrainer, self).__init__(config, model)
         self.pretrain_epochs = self.config["pretrain_epochs"]
         self.save_step = self.config["save_step"]
-        self.rank = config["rank"]
-        self.world_size = config["world_size"]
         self.model = self.model.to(self.device)
 
     def save_pretrained_model(self, epoch, saved_model_file):
