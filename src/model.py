@@ -90,6 +90,8 @@ class SASRec(SequentialRecommender):
         else:
             raise NotImplementedError("Make sure 'loss_type' in ['BPR', 'CE']!")
 
+        self.checkpoint = None
+
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -101,7 +103,6 @@ class SASRec(SequentialRecommender):
             module.weight.data.fill_(1.0)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
-
 
     def forward(self, interaction):
         """Synthetic data input"""

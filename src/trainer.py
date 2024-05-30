@@ -31,6 +31,8 @@ class TrainConfig:
     scheduler_type: str = "linear"
     warmup_ratio: float = 0.1
     weight_decay: float = 0.0
+    beta1: float = 0.9
+    beta2: float = 0.999
     max_grad_norm: float = 2.0
     val_interval: int = 1
     log_interval: int = -1  # if -1 -> len(dataloader)//10
@@ -61,7 +63,7 @@ class Trainer:
         logger.info(f"Valid loader length: (`{len(valid_loader)}`)")
 
         if self.config.log_interval == -1:
-            self.config.log_interval = len(train_loader) // 10
+            self.config.log_interval = len(train_loader) // 2
 
         optimizer, scheduler = self.configure_optimizer(
             distilled_data, max_training_steps=max_training_steps
@@ -140,6 +142,14 @@ class Trainer:
                             loss_task + distilled_data.attention_loss_lambda * loss_attn
                         )
 
+                    # m = {
+                    #     name: torch.zeros_like(p) for name, p in params.items()
+                    # }  # First moment estimates
+                    # v = {
+                    #     name: torch.zeros_like(p) for name, p in params.items()
+                    # }  # Second moment estimates
+                    # t = 0  # Time step
+
                     for inner_step in range(self.config.inner_loop):
                         batch_syn = distilled_data.get_batch(inner_step)
 
@@ -151,6 +161,26 @@ class Trainer:
                         grads = torch.func.grad(compute_loss)(
                             params, buffers, interaction=inputs_embeds, **batch_syn
                         )
+
+                        # t += 1  # Increment time step
+                        # for name in params.keys():
+                        #     # mt = beta1 * mt-1 + (1 - beta1) * gt
+                        #     m[name] = (
+                        #         self.config.beta1 * m[name]
+                        #         + (1 - self.config.beta1) * grads[name]
+                        #     )
+                        #     # vt = beta2 * vt-1 + (1 - beta2) * g2t
+                        #     v[name] = self.config.beta2 * v[name] + (
+                        #         1 - self.config.beta2
+                        #     ) * (grads[name] ** 2)
+                        #     # m_hat = mt / (1 - beta1^t)
+                        #     m_hat = m[name] / (1 - self.config.beta1**t + 1e-8)
+                        #     # v_hat = vt / (1 - beta2^t)
+                        #     v_hat = v[name] / (1 - self.config.beta2**t + 1e-8)
+                        #     # wt = wt-1 - alpha * m_hat / (sqrt(v_hat) + epsilon)
+                        #     params[name] = params[name] - syn_lr * m_hat / (
+                        #         torch.sqrt(v_hat) + 1e-8
+                        #     )
                         params = {
                             name: p - syn_lr * grads[name] for name, p in params.items()
                         }

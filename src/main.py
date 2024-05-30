@@ -12,7 +12,6 @@ from evaluator import EvaluateConfig, Evaluator
 from hydra.core.config_store import ConfigStore
 from model import ModelConfig, SASRec
 from omegaconf import OmegaConf
-from pretrainer import PretrainTrainer
 from recbole.config import Config as RecBoleConfig
 from tqdm.contrib.logging import logging_redirect_tqdm
 from trainer import TrainConfig, Trainer
@@ -99,8 +98,28 @@ def main(config: Config):
 
     # Pretrain
     if config.model.pretrain:
-        trainer = PretrainTrainer(recbole_config, model)
-        trainer.pretrain(train_data=data_module.train_loader)
+        import torch
+        from recbole.trainer import Trainer as SASRecTrainer
+
+        pretrainer = SASRecTrainer(recbole_config, model.cuda())
+        checkpoint_file = (
+            f"checkpoint/{config.data.task_name}-{config.model.model_name}.pth"
+        )
+        pretrainer.saved_model_file = checkpoint_file
+        if not os.path.exists(checkpoint_file):
+            pretrainer.fit(
+                train_data=data_module.train_loader,
+                valid_data=data_module.valid_loader,
+                saved=True,
+            )
+        checkpoint = torch.load(checkpoint_file)
+        model.checkpoint = checkpoint
+        model.load_state_dict(checkpoint["state_dict"])
+        model.load_other_parameter(checkpoint.get("other_parameter"))
+        for _, param in model.named_parameters():
+            if isinstance(param, torch.nn.Embedding):
+                param.requires_grad = True
+        logger.info(f"Loading model structure and parameters from {checkpoint_file}")
 
     # Distilled data
     if config.distilled_data.pretrained_data_path is not None:

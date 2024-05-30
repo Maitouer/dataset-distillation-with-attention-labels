@@ -25,6 +25,7 @@ class DistilledDataConfig:
     distilled_ratio: float = 0.2
     syn_seq_num: int = 50
     syn_seq_len: int = 20
+    syn_seq_dim: int = 50
     lr_for_step: bool = True
     lr_init: float = 1.0e-2
     lr_linear_decay: bool = False
@@ -68,18 +69,24 @@ class DistilledInputEmbedding(DistilledFeature):
         self,
         syn_seq_num: int = 50,
         syn_seq_len: int = 20,
+        syn_seq_dim: int = 50,
         item_num: int = 50,
     ):
         initial_embeds = torch.randn(
             syn_seq_num,
             syn_seq_len,
+            syn_seq_dim,
+            requires_grad=True,
+        )
+        initial_decoder = torch.randn(
+            syn_seq_dim,
             item_num,
             requires_grad=True,
         )
-        self.data = initial_embeds
+        self.data = initial_embeds @ initial_decoder
 
     def __getitem__(self, index):
-        return self.data[index]
+        return self.data[index].softmax(dim=-1)
 
 
 class DistilledAttentionLabels(DistilledFeature):
@@ -171,6 +178,7 @@ class DistilledData:
         self.inputs_embeds = DistilledInputEmbedding(
             syn_seq_num=self.config.syn_seq_num,
             syn_seq_len=self.config.syn_seq_len,
+            syn_seq_dim=self.config.syn_seq_dim,
             item_num=num_items,
         )
         self.lr = DistilledLR(

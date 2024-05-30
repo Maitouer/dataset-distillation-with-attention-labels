@@ -54,8 +54,6 @@ class DataConfig:
     train_batch_size: int = 32
     valid_batch_size: int = 256
     test_batch_size: int = 256
-    num_proc: int = 1
-    force_preprocess: bool = False
     model: str = "SASRec"
     recbole_config: str = "configs/sasrec.yaml"
 
