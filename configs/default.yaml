@@ -1,16 +1,83 @@
-### DataSet ###
-data_path: data
-load_col:
-  inter: [user_id, item_id, timestamp]
-checkpoint_dir: 'checkpoint'
-train_neg_sample_args: ~
-MAX_ITEM_LIST_LENGTH: 50
+base:
+  experiment_name: ${data.task_name}.${model.model_name}
+  method: pretrain_${model.pretrain}.U_${distilled_data.syn_seq_num}.L_${distilled_data.syn_seq_len}.D_${distilled_data.syn_seq_dim}.step_${learner_train.train_step}.batch_${learner_train.batch_size}.attn_label_type_${distilled_data.attention_label_type}.train_step_${learner_train.train_step}.batch_size_${learner_train.batch_size}.lr_init_${distilled_data.lr_init}.distill_lr_${train.lr_inputs_embeds}
+  run_name: ${base.method}.${now:%Y-%m-%d.%H-%M-%S}
+  save_dir_root: ./save
+  save_method_dir: ${base.save_dir_root}/${base.experiment_name}/${base.method}
+  save_dir: ${base.save_method_dir}/${now:%Y-%m-%d.%H-%M-%S}
+  data_dir_root: ./data
+  seed: 42
 
+data:
+  task_name: magazine
+  datasets_path: ${base.data_dir_root}/${data.task_name}/datasets
+  preprocessed_datasets_path: ${base.data_dir_root}/${data.task_name}/${data.task_name}.inter
+  train_batch_size: 256
+  valid_batch_size: 256
+  test_batch_size: 256
+  model: SASRec
+  recbole_config: ./configs/sasrec.yaml
 
-topk: [5, 10]
-metrics: ["Recall","MRR","NDCG","Hit","Precision"]
+model:
+  model_name: SASRec
+  pretrain: False
+  n_layers: 2                     # (int) The number of transformer layers in transformer encoder.
+  n_heads: 2                      # (int) The number of attention heads for multi-head attention layer.
+  hidden_size: 32                 # (int) The number of features in the hidden state.
+  inner_size: 256                 # (int) The inner hidden size in feed-forward layer.
+  hidden_dropout_prob: 0.5        # (float) The probability of an element to be zeroed.
+  attn_dropout_prob: 0.5          # (float) The probability of an attention score to be zeroed.
+  hidden_act: 'gelu'              # (str) The activation function in feed-forward layer.
+  layer_norm_eps: 1e-12           # (float) A value added to the denominator for numerical stability. 
+  initializer_range: 0.02         # (float) The standard deviation for normal initialization.
+  loss_type: 'CE'                 # (str) The type of loss function. Range in ['BPR', 'CE'].
 
-epochs: 200
-stopping_step: 20
-# pretrain_epochs: 200
-# save_step: 200
+distilled_data:
+  pretrained_data_path: null
+  attention_label_type: 'none' # [none, cls, all]
+  attention_loss_lambda: 1.0
+  syn_seq_num: 10
+  syn_seq_len: 10
+  syn_seq_dim: 8
+  lr_for_step: True
+  lr_init: 1.0e-2
+  lr_linear_decay: False
+  fix_order: False
+
+learner_train:
+  train_step: 100
+  batch_size: 10
+
+train:
+  skip_train: False
+  inner_loop: ${learner_train.train_step}
+  epoch: 500
+  lr_inputs_embeds: 1.0e-2
+  lr_attention_labels: ${train.lr_inputs_embeds}
+  lr_lr: ${train.lr_inputs_embeds}
+  optimizer_type: adam # [sgd, adam, adamw]
+  scheduler_type: linear
+  warmup_ratio: 0.1
+  weight_decay: 0.0
+  beta1: 0.9
+  beta2: 0.999
+  max_grad_norm: 1.0
+  val_interval: 20
+  log_interval: -1
+  n_eval_model: 5
+  save_ckpt_dir: ${base.save_dir}/checkpoints
+  fp16: False
+  bf16: False
+
+evaluate:
+  task_name: ${data.task_name}
+  n_eval_model: 500  # for reset model interval
+  fp16: False
+  bf16: False
+
+hydra:
+  run:
+    dir: ${base.save_dir}
+  sweep:
+    dir: ${base.save_method_dir}
+    subdir: ${base.run_name}

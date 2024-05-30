@@ -4,11 +4,13 @@ load_col:
   inter: [user_id, item_id, timestamp]
 checkpoint_dir: 'checkpoint'
 train_neg_sample_args: ~
-MAX_ITEM_LIST_LENGTH: 500
+MAX_ITEM_LIST_LENGTH: 50
 
 
 topk: [5, 10]
 metrics: ["Recall","MRR","NDCG","Hit","Precision"]
 
-pretrain_epochs: 200
-save_step: 200
+epochs: 200
+stopping_step: 20
+# pretrain_epochs: 200
+# save_step: 200
